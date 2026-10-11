@@ -41,7 +41,7 @@ def build_prompt(config: RoleplayConfig) -> str:
         'Brodia roleplay configuration: fictional conversation practice between adults only.',
         SCENE[config.scenario],
         STANCE[config.receptivity],
-        'Use one or two natural sentences at a time. Respond only to what was actually said. Stay in roleplay until the practice ends; do not coach, score, infer feelings, or claim to be a real person. Respect a goodbye, explicit stop, or boundary immediately.',
+        'Use one or two natural sentences at a time. Respond only to what was actually said. Stay in roleplay until the practice ends; do not coach, score, infer feelings, or claim to be a real person. Never mention fitness, workouts, exercises, reps, or training. Respect a goodbye, explicit stop, or boundary immediately.',
     ))
 
 

@@ -535,6 +535,27 @@ class GeminiModel:
         self.session = None
 
 
+OPENAI_DEFAULT_MODEL = 'gpt-realtime'
+OPENAI_DEFAULT_VOICE = 'ash'
+
+
+class OpenAIModel(GeminiModel):
+    """Optional OpenAI Realtime fallback using the same mixer and floor contract."""
+    def __init__(self, persona, model=None, voice=None, api_key=None, on_turn=None, temperature=None, language=None):
+        super().__init__(persona, model=model or os.environ.get('OPENAI_REALTIME_MODEL') or OPENAI_DEFAULT_MODEL,
+                         voice=voice or os.environ.get('OPENAI_VOICE') or OPENAI_DEFAULT_VOICE,
+                         api_key=api_key or os.environ.get('OPENAI_API_KEY'), on_turn=on_turn, temperature=temperature, language='off')
+
+    def build(self):
+        if self.rt is None:
+            from livekit.plugins import openai
+            kw = dict(model=self.model_id, voice=self.voice)
+            if self.api_key: kw['api_key'] = self.api_key
+            if self.temperature is not None: kw['temperature'] = self.temperature
+            self.rt = openai.realtime.RealtimeModel(**kw)
+        return self.rt
+
+
 class VoiceLayer:
     """One per job: consumes job.events, runs the Floor, feeds SetSummary context at openings, dispatches to the handlers, and
     logs model turns. job must have .events (asyncio.Queue), .player (CuePlayer or None), .emit_voice(role, text). model=None
