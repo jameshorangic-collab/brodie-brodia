@@ -477,6 +477,9 @@ class CoachJob:
         if self.leave_task is not None: self.leave_task.cancel()
         if self.open_task is not None and not self.open_task.done(): self.open_task.cancel()
         for t in getattr(self, 'consumer_tasks', []): t.cancel()
+        social_tasks = list(getattr(self, 'social_tasks', ()))
+        for t in social_tasks: t.cancel()
+        await asyncio.gather(*social_tasks, return_exceptions=True)
         video_tasks = {t for t in (self.mirror_task, self.avatar_task) if t is not None}
         if video_tasks:                                                                  # let the mirror/avatar close its VideoSource (bounded)
             await asyncio.wait(video_tasks, timeout=1.0)
@@ -734,7 +737,8 @@ class CoachJob:
                 if is_brodia and a.voice == 'gemini':
                     from facetime.brodia import RoleplayConfig
                     from facetime.brodia_live import BrodiaController
-                    options['controller'] = BrodiaController(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
+                    options['controller'] = BrodiaController(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity),
+                                                            on_outcome=self.emit_social_outcome)
                 model = model_cls(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice, **options)
         if getattr(a, 'vision', False):
             if model is None: print('[vision] --vision needs --voice gemini or openai with a model session: no video is forwarded', flush=True)
@@ -760,6 +764,23 @@ class CoachJob:
         else:
             print(f'[voice] handlers {hpath} (say_now only; no model: ask_voice returns None)', flush=True)
         return v
+
+    def emit_social_outcome(self, event):
+        """Only approved demo receipts cross the room; never caller/character transcripts."""
+        if getattr(self, 'closed', False):
+            return
+        if not hasattr(self, 'social_tasks'):
+            self.social_tasks = set()
+        task = asyncio.create_task(self._publish_social_outcome(event), name='brodia-social-receipt')
+        self.social_tasks.add(task)
+        task.add_done_callback(self.social_tasks.discard)
+
+    async def _publish_social_outcome(self, event):
+        try:
+            await self.room.local_participant.publish_data(json.dumps(event).encode(), reliable=True,
+                                                           topic='brodia.social_outcome')
+        except Exception as exc:
+            log.warning('Brodia receipt delivery failed (%s)', type(exc).__name__)
 
     def emit_voice(self, role, text):
         """A model (or caller) turn as an event of type voice {text, t, role}: the queue, the JSONL log, the console (own seq counter)."""

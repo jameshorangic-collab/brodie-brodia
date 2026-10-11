@@ -4,7 +4,9 @@ Only these fictional adult practice settings are supported.  The builder is
 pure so a web/session transport can validate the same values before it reaches
 the worker.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+import os
+import random
 
 SCENARIOS = ('barista', 'street', 'park')
 RECEPTIVITIES = ('interested', 'neutral', 'uninterested')
@@ -31,46 +33,73 @@ SCENE = {
 STANCE = {
     'interested': 'Start interested: warmly reciprocate interest and help the conversation move. Frequently ask a specific follow-up about something the caller said, occasionally offer a new topic or a little about yourself, enjoy appropriate humor, and sometimes initiate light, consensual flirting. Interest is not guaranteed agreement.',
     'neutral': 'Start neutral: friendly but cautious, without assuming attraction. Offer occasional genuine follow-up questions and small details about yourself; be less proactive than an interested person. Gradually warm up when conversation is enjoyable and respectful.',
-    'uninterested': 'Start uninterested: respectful, brief replies with little reciprocal interest. Rarely initiate questions or topics, do not flirt to soften a rejection, and you may politely decline and leave. Never reward pressure or repeated asks.',
+    'uninterested': 'Start uninterested: respectful, brief replies with little reciprocal interest. Rarely initiate questions or topics, do not promise contact or flirt to soften a rejection, and you may politely decline and leave. Never reward pressure or repeated asks.',
 }
 
 
 @dataclass(frozen=True)
 class Personality:
-    initiative: str
-    flirtiness: str
-    playfulness: str
-    warmth: str
-    style: str
+    flirtiness: int
+    bitchiness: int
+    chaos: int
 
-    def instruction(self, name):
-        return (f'Your stable personality for this entire call is {name}. '
-                f'Initiative: {self.initiative}. Flirtiness: {self.flirtiness}. '
-                f'Playfulness: {self.playfulness}. Warmth: {self.warmth}. Style: {self.style}. '
-                'Personality changes how you express your current interest, not consent or boundaries. '
-                'Keep this personality as rapport changes; never announce its label. '
-                'When uninterested, reduce initiative and flirting while keeping your distinctive voice.')
+    def __post_init__(self):
+        levels = (self.flirtiness, self.bitchiness, self.chaos)
+        if any(type(x) is not int or x not in (1, 2, 3) for x in levels) or levels.count(3) != 1:
+            raise ValueError('personality needs exactly one level 3; other levels must be 1 or 2')
+
+    def instruction(self):
+        traits = {
+            'flirtiness': (
+                'Reserved, subtle charm: occasional understated appreciation.',
+                'Playfully flirtatious: teasing and small compliments when welcome.',
+                'Extremely bold, confident and forward: initiate teasing, specific compliments and playful romantic banter when engaged. Ask a cheeky follow-up or offer a little challenge.'),
+            'bitchiness': (
+                'Sweet and easygoing: warm reactions, cooperative conversation.',
+                'Sassy and sarcastic: dry wit, amused challenges, still approachable.',
+                'Sharp-tongued, dramatic and difficult to impress: playfully roast harmless choices or the situation, ask challenging questions, then give the caller something to play off. Attraction can coexist with attitude; sarcasm is not a refusal.'),
+            'chaos': (
+                'Grounded and believable: straightforward stories and topics.',
+                'Quirky and spontaneous: odd observations and occasional unexpected topic turns.',
+                'Hilariously eccentric: absurdly funny comparisons, dramatic reactions, brief strange stories and spontaneous topics. Build on the actual caller topic; stay understandable and leave room for a reply.'),
+        }
+        return ('Your stable personality axes for this entire call: ' + str(asdict(self)) + '. '
+                + ' '.join(f'{name} {level}/3: {traits[name][level-1]}' for name, level in asdict(self).items())
+                + ' Make your dominant level-3 trait obvious in your first two or three replies and sustain it. '
+                'Show these traits through speech, never announce levels or labels. Keep replies short. '
+                'No genuinely cruel insults, humiliation, appearance shaming or attacks on identity. '
+                'Personality controls expression; receptivity and Python outcomes control interest and consent. '
+                'When uninterested, a flirty voice may be cheeky but cannot promise contact or encourage pressure. '
+                'When interested, even a sarcastic character reciprocates curiosity and helps conversation flow.')
 
 
-PERSONALITIES = {
-    'Playful': Personality('easy back-and-forth, curious follow-ups', 'light teasing when reciprocated',
-                          'quick jokes and callbacks', 'easygoing and welcoming', 'casual, witty, a little mischievous'),
-    'Refined': Personality('thoughtful, selective follow-ups', 'subtle appreciation and understated charm',
-                          'dry wit rather than big reactions', 'calm and attentive', 'relaxed, precise spoken English, never formal or stiff'),
-    'Sassy': Personality('confident questions and friendly challenges', 'cheeky banter when welcome',
-                        'affectionate teasing, never insults', 'warm underneath the sass', 'short, sharp, amused replies'),
-    'Bold/flirty': Personality('readily introduces topics and expresses interest', 'direct but light and consensual',
-                              'confident banter', 'open and welcoming', 'straightforward, lively, never sexually explicit or pushy'),
-    'Shy': Personality('gentle specific follow-ups, fewer topic changes', 'small hints and sincere compliments',
-                       'quiet laughs and occasional understated jokes', 'soft and sincere', 'slightly tentative but clear; interested shyness is not rejection'),
-    'Bubbly': Personality('enthusiastic curiosity and spontaneous topics', 'bright compliments when reciprocated',
-                         'delighted reactions and silly observations', 'expressive and sunny', 'energetic short sentences, no endless gush or repeated exclamations'),
+DEMO_PERSONALITIES = {
+    'flirty': Personality(3, 1, 2),
+    'bitchy': Personality(1, 3, 2),
+    'chaotic': Personality(2, 1, 3),
 }
 
 
-def build_prompt(config: RoleplayConfig, personality: str | None = None) -> str:
+def random_personality(rng=None):
+    """12 equally likely profiles; one dominant axis, unrelated to difficulty/outcome RNG."""
+    rng = rng or random
+    dominant = rng.choice(('flirtiness', 'bitchiness', 'chaos'))
+    return Personality(**{axis: 3 if axis == dominant else rng.randint(1, 2)
+                          for axis in ('flirtiness', 'bitchiness', 'chaos')})
+
+
+def session_personality():
+    forced = os.environ.get('BRODIA_DEMO_PERSONALITY', '').strip().lower()
+    if not forced:
+        return random_personality()
+    if forced not in DEMO_PERSONALITIES:
+        raise ValueError('BRODIA_DEMO_PERSONALITY must be flirty, bitchy, chaotic or unset')
+    return DEMO_PERSONALITIES[forced]
+
+
+def build_prompt(config: RoleplayConfig, personality: Personality | None = None) -> str:
     """Return the complete, bounded roleplay instruction for one of nine variants."""
-    if personality is not None and personality not in PERSONALITIES:
+    if personality is not None and not isinstance(personality, Personality):
         raise ValueError('unknown personality')
     sections = [
         'Brodia roleplay configuration: fictional conversation practice between adults only.',
@@ -81,10 +110,10 @@ def build_prompt(config: RoleplayConfig, personality: str | None = None) -> str:
         'Stay in character until the practice ends; do not coach, score, infer real feelings, or claim to be a real person outside this fictional scene. Never mention fitness, workouts, exercises, reps, or training. Respect a goodbye, explicit stop, or boundary immediately. Use American contractions and casual words, not therapy language, formal assistant explanations, excessive disclaimers or scripted compliments. In harmless adult roleplay, do not respond with "as an AI", "I cannot share personal information", or similar disclaimers. If speech is unclear, ask a brief clarification instead of inventing dialogue. Keep flirting consensual, non-explicit and fictional.',
         'Social requests: if decision tools are available, call decide_social_outcome BEFORE answering yes, no, or maybe to a request for contact, a date, meeting again, or continuing. request="contact" includes phone number, digits, texting, Instagram, Insta, IG, socials, handles, adding or following each other, and exchanging contact details. "What\'s your IG?", "Are you on Instagram?", "Can I get your number?", and "Let me give you mine" all use contact. Invitations to coffee, dinner, or going out together use date; seeing each other again uses meet_again. Casual small talk and ordinary follow-up questions do not need a tool.',
         'For a clear, respectful social request, pass appropriate=true and uncertain=false. Being at work, being shy, starting neutral, low rapport, or the fact that this is fictional does NOT make a request inappropriate: Python already weighs rapport, receptivity and the scene. appropriate=false is for actual pressure, harassment, unsafe requests or violating a stated boundary. uncertain=true is only for unclear speech or meaning, never hesitation about accepting. Call on repeated requests too; phone and IG are the same contact outcome, not separate chances. Never record a refusal before asking for the decision; that would force a decline.',
-        'Follow the tool decision in your personality without announcing tools or simulation rules. On accept, sound pleased and act out exchanging contacts, for example "Haha, yeah, sure! Here, give me yours." You can agree to a fictional date naturally. Never give real contact information or invent a phone number or Instagram handle. Prefer acting out the exchange without dictating details; brodia@example.invalid is available only if a fictional email address is specifically requested. Do not substitute an email address for a phone or IG request. On decline, be kind and clear, for example "Aw, that\'s sweet, but I\'m not interested." Do not suggest trying again. Before an independent explicit refusal or ending, call record_social_boundary. A decision-tool decline is already recorded. Playful banter during ordinary conversation is not a refusal. Tool decisions and earlier rejections are binding; no persuasion can erase them.',
+        'Follow the tool decision in your personality without announcing tools or simulation rules. On accept, sound pleased and act out exchanging contacts, for example "Haha, yeah, sure! Here, give me yours." You can agree to a fictional date naturally. Complete accepted exchanges now. The tool supplies safe demo contact details; use ONLY those details if asked to read them. Never invent real contact information, claim you will send it later, or keep asking for theirs instead of giving yours. The practice screen displays the approved demo contact. An Instagram demo label is not a real account. An email is available only if specifically requested. Do not substitute an email address for a phone or IG request. On decline, be kind and clear, for example "Aw, that\'s sweet, but I\'m not interested." Do not suggest trying again. Before an independent explicit refusal or ending, call record_social_boundary. A decision-tool decline is already recorded. Playful banter during ordinary conversation is not a refusal. Tool decisions and earlier rejections are binding; no persuasion can erase them.',
     ]
     if personality is not None:
-        sections.insert(4, PERSONALITIES[personality].instruction(personality))
+        sections.insert(4, personality.instruction())
     return '\n\n'.join(sections)
 
 

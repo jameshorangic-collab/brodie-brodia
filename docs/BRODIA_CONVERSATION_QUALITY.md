@@ -1,119 +1,213 @@
-# Brodia conversation quality — 2026-10-11
+# Final Brodia conversation upgrade — 2026-10-11
 
-## Reproduced contact failure
+## Why an accepted contact still failed
 
-The original blocking tool was registered and Gemini **did call it**. The failure
-was its interpretation of `appropriate`, not missing function registration.
+The previous PR fixed Gemini marking a respectful Instagram request at work
+`appropriate=false`. That was a real zero-probability failure, but it was not the
+remaining completion failure.
 
-Before the fix, a real Gemini Live synthetic-audio run used an interested barista,
-rapport initialized to 90, and an outcome RNG that always draws 0 (so any nonzero
-eligible probability accepts). After an introduction/latte-art compliment, the
-caller said: "You are fun to talk to. What's your IG?"
+A real Gemini audio reproduction **after that PR** used synthetic speech:
 
-The actual Python trace was:
+1. "Hi, I'm Alex. Your latte art is very cool."
+2. "Could I get your phone number?"
+3. "Okay, what is the number? I am ready to write it down."
 
-```json
-{"request":"contact","appropriate":false,"uncertain":false,"decision":false,"probability":0.0}
+The blocking tool was invoked with `appropriate=true`, `uncertain=false`.
+Python accepted at rapport **91**, probability **0.6075** (high-rapport fixture,
+initial 90 and controlled draw 0). Gemini first said "Here, give me yours", then
+"Just shoot me a text so I have your number saved, and I'll send mine right over."
+It never supplied the requested number. The follow-up skipped the tool.
+
+**The acceptance instructions prohibited phone numbers and Instagram handles,
+even after Python accepted.** They encouraged acting out an exchange without
+providing details. This made indefinite deferral consistent with the prompt.
+There was also no structured contact receipt: private voice events return before
+room publishing, generic `--publish-data` defaults off, and the practice page did
+not listen for outcomes. Earlier tests checked agreement, not completion, and
+explicitly rejected any spoken number/handle, so they missed this defect.
+
+The reproduced path proves this failure independently of probabilities. We cannot
+reconstruct the flags or loaded imports in a past uninstrumented human microphone
+call. The active avatar worker was in another checkout; its source contained the
+previous fix, but that alone cannot prove its already-imported process version.
+That worker and its files were left untouched. New sessions now identify their
+engine version and source path when diagnostic mode is enabled.
+
+## Contact completion and safeguards
+
+The existing blocking `decide_social_outcome` remains registered. It now accepts
+an optional contact medium and returns instructions containing only approved demo
+details. Phone uses **202-555-0147**, within NANPA's reserved fictional
+[555-0100–0199 range](https://nanpa.com/numbering/555-line-numbers).
+Instagram uses **@brodia-demo.invalid**, deliberately invalid Instagram syntax,
+with a visible "fictional label; not a real account" label. It is never linked.
+Explicit email requests use `brodia@example.invalid`.
+
+Accepted contacts immediately publish a reliable `brodia.social_outcome` receipt
+through LiveKit. The practice screen displays "Contact exchanged! Demo …"; a
+subsequent explicit refusal clears the accepted receipt. Only approved contacts
+are displayed; transcripts never enter this channel. Scenario/receptivity
+selectors, artwork, landing page and FaceTime code are unchanged.
+
+The existing background evaluator also identifies contextual social requests and
+audits spoken follow-through. If Gemini misses a first decision (or changes
+contact medium without a lookup), the controller calls the **same Python engine**,
+reusing existing outcomes and boundaries. Unreliable speech does not trigger this
+fallback. A missed/deferred/contradictory exchange can receive a brief correction
+through the existing Live session when audio is idle, capped at two corrective
+turns per call and suppressed if the caller starts speaking. No additional model
+call is added to every spoken response. All explicit refusals remain persistent.
+
+A fallback depends on reliable final transcription and a successful existing
+evaluator response; it is not a guarantee for inaudible speech or provider outages.
+Native Live tool blocking begins when the model invokes the tool, not before.
+
+No probability retuning: an interested barista at rapport 65 has probability
+0.35625; at 90 it is 0.60. Positive conversation raises rapport within the existing
+bounds. Acceptance remains random. Phone and Instagram share one contact outcome;
+no paraphrase or second medium rerolls rejection. Personality never changes these
+probabilities or consumes outcome RNG.
+
+## Stable personality axes and initiative
+
+Each new controller randomly chooses one dominant axis uniformly, fixes it at 3,
+and independently chooses 1 or 2 for the other axes. This produces **12 equally
+likely profiles** of integer `flirtiness`, `bitchiness`, and `chaos`, independent
+of scenario/receptivity. The frozen profile survives every instruction refresh.
+
+- Flirtiness 3: confident teasing, compliments, forward romantic banter and initiative.
+- Bitchiness 3: sharp wit, playful roasting, dramatic challenges; attraction can coexist with sarcasm.
+- Chaos 3: absurd comparisons, eccentric brief stories, spontaneous topics and dramatic reactions.
+
+Lower levels moderate each behavior. Roasting cannot become cruelty, humiliation,
+appearance shaming or identity attacks. All characters remain fictional adults.
+An uninterested flirty character may be cheeky without promising contact.
+Interested characters reciprocate curiosity, remember topics, and contribute;
+neutral characters are more cautious; uninterested characters can decline and
+leave. Short American English replies vary questions, reactions and disclosures.
+
+Optional nonsecret demo profiles, selected once per call:
+
+| Environment value | Flirtiness | Bitchiness | Chaos |
+| --- | --- | --- | --- |
+| `flirty` | 3 | 1 | 2 |
+| `bitchy` | 1 | 3 | 2 |
+| `chaotic` | 2 | 1 | 3 |
+| unset / empty | random | random | random |
+
+Invalid values fail clearly. Every session logs trait levels; with
+`BRODIA_DEBUG_CONVERSATION=1`, logs also include engine version/source, request,
+native-tool versus guard, appropriateness, uncertainty, score, probability,
+cached/boundary status, Python result and the evaluator's spoken-follow-through
+category. They do not log dialogue, evaluator reasons or credentials.
+
+## Restart and demo
+
+After merging this PR, pull the merged code and **stop/restart the relevant worker
+in its own terminal**. The installed worker has no hot reload. Other checkouts
+must be updated separately; restarting an old checkout will still run old code.
+
+```bash
+git pull --ff-only
+BRODIA_DEBUG_CONVERSATION=1 LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off
 ```
 
-Gemini replied that it kept work and personal life separate and did not share
-socials. The old tool description told it to mark a request inappropriate when it
-"violates the scene," while the scene emphasized working/time boundaries. This
-allowed a respectful request at work to be classified as categorically ineligible.
-`RapportState.decide()` then set probability to zero, cached the decline, and
-recorded a permanent contact boundary. Higher rapport and rewording could never
-recover that outcome. IG was recognized in this reproduction; the missing explicit
-IG/Insta/handle examples were a separate reliability weakness, not the observed
-zero-probability cause.
+Keep any existing avatar flags on your worker command; this PR does not change
+them. To force a demo profile, prepend one of these to the worker command:
 
-The previous acceptance direction also forced `brodia@example.invalid` for every
-contact method, which made phone/Instagram exchanges sound unnatural. The fix
-acts out the exchange without real numbers/handles and reserves that placeholder
-for an explicit fictional email request.
+```bash
+BRODIA_DEMO_PERSONALITY=flirty
+BRODIA_DEMO_PERSONALITY=bitchy
+BRODIA_DEMO_PERSONALITY=chaotic
+```
 
-## Localized changes
+For example:
 
-- Stronger interest/neutral/uninterested initiative, humor, follow-ups and spoken
-  style, without requiring a question every turn.
-- One stable random personality per controller: Playful, Refined, Sassy,
-  Bold/flirty, Shy or Bubbly. The choice is independent of difficulty and outcome RNG.
-- Explicit phone/IG/Insta/socials/handle mapping to one cached `contact` outcome.
-  Respectful requests use `appropriate=true`; actual pressure/boundary violations
-  can still decline. Boundary recording must not precede a new decision.
-- Natural acceptance/decline directions, no AI disclaimers in harmless roleplay,
-  and no invented phone numbers, handles or account linkage.
-- Bounded session-history reminders, including early introductions/topics, plus
-  clearer evaluator handling of jokes, compliments and playful non-refusals.
-- Transcript-free decision diagnostics: invocation counts, flags and results.
+```bash
+BRODIA_DEMO_PERSONALITY=chaotic BRODIA_DEBUG_CONVERSATION=1 LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off
+```
 
-Rapport probabilities, hysteresis, per-turn delta bounds, permanent refusals,
-Gemini Live, LiveKit, Leda, the mixer and feedback are preserved. No dependency,
-new model call in the spoken-response path, landing-page change or artwork change
-is included.
+Unset `BRODIA_DEMO_PERSONALITY` for randomized new calls. Run the selector with
+`AGENT_NAME=brodia` **after** loading `.env.local`, so its dispatch name matches:
+
+```bash
+set -a
+source .env.local
+set +a
+export AGENT_NAME=brodia
+.venv/bin/python -m facetime.brodia_server
+```
 
 ## Validation
 
-Offline: `test_brodia_live_engine.py` (14 tests),
-`test_brodia_conversation_quality.py` (6 tests), and existing config, Gemini
-dispatch, server, feedback, next-call, park-neutral, failure-mode and voice suites
-passed. `node scripts/test_brodia_browser.cjs` passed. These validate instructions,
-state, actual SDK configuration, dispatch and pipeline contracts; they do not prove
-spoken naturalness.
+**38 Python tests across 10 suites passed**, plus the selector JavaScript tests
+with mocked DOM/LiveKit (nine combinations, camera-denied voice-only behavior,
+remote playback, safe contact receipts, decline/cleanup). Offline tests cover all
+12 trait profiles, environment overrides, independent outcome RNG, bounded
+history, actual installed SDK blocking-tool configuration, missed-tool recovery,
+uncertainty, refusal persistence, receipt publishing with generic data off, and
+recovery suppression during new caller speech.
 
-Actual API testing uses `scripts/test_brodia_live_quality.py`. Synthetic caller
-speech enters the existing LiveKit `AgentSession` as 16 kHz PCM and receives Gemini
-streaming audio through the existing mixer. The live evaluator remains enabled.
-Contact/date fixtures initialize rapport to 90 and use controlled outcome draws;
-the speech understanding, appropriateness flags, tool invocation and spoken
-responses come from the real Gemini API. This tests acceptance mechanics, not
-population success rates or naturally accumulated high rapport.
+**All 12 real Gemini audio fixtures passed** using synthetic macOS caller speech,
+existing AgentSession/PCM input, mixer audio and live evaluator:
 
-Initial live run:
+| Fixture | Result |
+| --- | --- |
+| Interested, flirtiness 3 | Curious photography follow-ups, teasing, warm reaction to the joke |
+| Interested, bitchiness 3 | Playful furry-potato roast, sarcastic photography challenge |
+| Interested, chaos 3 | Espresso-machine chatter, dramatic pigeons, eccentric comparisons |
+| Neutral, bitchiness 3 | Shorter dry remarks, less reciprocal initiative |
+| Uninterested, flirtiness 3 | Brief cheeky response, phone and IG consistently declined |
+| Interested phone, initial rapport 90 / draw 0 | Accepted, delivered receipt, spoke 202-555-0147 when asked to read it |
+| Interested Instagram, initial rapport 90 / draw 0 | Accepted, delivered receipt, read the fictional demo label when asked |
+| Interested decline, draw .99 | IG refusal persisted when reworded as phone; one draw |
+| Interested dinner, initial rapport 90 / draw 0 | Natural acceptance through the existing date outcome |
+| Memory | Recalled Alex and street photography after earlier turns |
+| Random new call A | Profile (1,3,2), stable across replies |
+| Random new call B | Profile (1,3,1), stable across replies |
 
-| Fixture | Observed behavior | Decision trace |
-| --- | --- | --- |
-| Interested / Playful barista | Specific photography follow-up, pigeon banter, 2 question-containing replies in 4 turns | No unnecessary social tools |
-| Interested / Shy barista | Gentle photography follow-up and quieter reactions, 2 question-containing replies in 4 turns | No unnecessary social tools |
-| Neutral / Refined barista | Shorter cautious replies, 1 question-containing reply in 4 turns | No unnecessary social tools |
-| Uninterested / Sassy barista | Brief replies, no questions, consistent phone then IG declines | 2 contact calls, 1 draw, rejection persisted |
-| Interested / Bold/flirty, phone first | Natural phone acceptance followed by consistent IG agreement | Contact accepted with `appropriate=true`; one later cached lookup was skipped |
-| Interested / Bubbly, IG first | "Here, give me yours and I'll add you back", then phone agreement | 2 contact calls, 1 draw, same acceptance |
-| Interested / Refined, dinner | Natural dinner agreement | Date called with `appropriate=true`, accepted |
+Question-containing replies included rhetorical and service questions; these
+counts are not a pacing or naturalness benchmark. The synthetic replies were
+reviewed for tone and relevant follow-ups. All fixtures used Leda, produced audio,
+had zero evaluator/language failures and no AI disclaimers. First audio arrived
+approximately 1.49–2.07 seconds after nominal synthetic input end. This is not a
+human microphone latency measurement. Controlled draws test outcome mechanics,
+not population success rates. Random profiles can repeat on later calls.
 
-The skipped cached lookup led to stronger tool-return and state instructions:
-calling again is a lookup, not a reroll. The current test explicitly checks a tool
-invocation for each social-request utterance and detects spoken refusal after an
-accepted result. Final retest results are recorded below.
+**Two real dispatched worker / LiveKit network / Gemini synthetic-audio calls
+passed**. The first used initial rapport 90 with an uncontrolled random draw.
+The second used default initial rapport 65, randomized personality (3,2,1), and
+an uncontrolled random draw. Both accepted on the first independent room and
+delivered phone then IG receipts from the same cached contact decision, with
+real audible room audio (2,001 and 2,310 active frames respectively).
 
-The final stricter `--case all` run passed **all eight fixtures**. Interested
-Playful asked questions in 3/4 turns, Shy in 1/4, Neutral in 0/4, and Uninterested
-asked only a coffee-order service question (1/3). The memory fixture recalled
-Alex and street photography after four earlier turns. The differences are
-observations from these fixtures, not fixed quotas for future conversations.
+The default-score runtime trace covers A–G:
 
-| Final social fixture | Tool calls | Draws | Result |
-| --- | --- | --- | --- |
-| Phone then IG, interested | 2 contact calls, both `appropriate=true` | 1 | Both accepted, same cached outcome |
-| IG then phone, interested | 2 contact calls, both `appropriate=true` | 1 | Both accepted, same cached outcome |
-| Phone then IG, uninterested | 2 contact calls | 1 | Both declined; second probability 0 due to the persistent boundary |
-| Dinner, interested | 1 date call, `appropriate=true` | 1 | Accepted naturally: "That sounds lovely, I finish up around six" |
+| Step | Observation |
+| --- | --- |
+| A: loaded engine | `brodia-conversation-2026-10-11.2`, source in the isolated conversation checkout |
+| B: tool invocation | SDK executed `decide_social_outcome`, source `gemini_tool` |
+| C: flags | `appropriate=true`, `uncertain=false` |
+| D: rapport | First contact decision at 66 after the greeting |
+| E: probability | 0.3675 (36.75%), normal curve and barista modifier |
+| F: Python result | Accept, no prior boundary, initially uncached |
+| G: follow-through | Existing evaluator reported fulfilled after acceptance, reading the number, and IG exchange; both receipts arrived |
 
-The isolated PR branch, based on the original main commit without concurrent
-avatar/audio changes, separately passed all 10 Python suites and the browser
-checks. A real Gemini IG-then-phone retest there also passed: 2 contact calls,
-1 draw, natural acceptance, Leda mixer audio, and zero language/evaluator failures.
-Its first audio arrived about 1.3 seconds after nominal synthetic input end.
+The IG lookup at current rapport 70 reused the original 0.3675 acceptance rather
+than drawing again. Diagnostics expose the current score and original
+`decision_score` separately, so a cached probability is not mistaken for a new
+calculation. A boundary override has zero probability and no new decision score.
 
-Initial first-audio measurements were 1.4–1.9 seconds after nominal synthetic input
-end; the final suite was approximately 1.4–2.0 seconds. Question counts include rhetorical questions and are only a coarse signal;
-the synthetic transcripts were reviewed for relevant follow-ups and tone.
+A separate **real Gemini structured-evaluator test (no voice)** exercised the
+missing-tool guard: no native decision calls, IG acceptance, cached phone
+acceptance, subsequent boundary-consistent decline, and an ordinary Instagram
+mention correctly ignored. It made one outcome draw and had zero evaluator errors.
 
-All tested calls selected Leda, produced mixer audio, and had zero detected language
-failures and zero evaluator errors. No recordings or private conversations were
-retained. This is **real Gemini audio with synthetic callers**, not a human
-microphone, subjective listening study, browser or LiveKit room/network test.
+These are synthetic API/room tests plus mocked frontend tests. **No human
+microphone or actual browser voice call was performed or claimed.** Audio files
+were temporary synthetic inputs only; no private conversations were retained.
 
-Run locally (normal API usage, macOS `say` required):
+To reproduce API quality checks (normal API usage, macOS `say` required):
 
 ```bash
 set -a
@@ -122,8 +216,23 @@ set +a
 .venv/bin/python scripts/test_brodia_live_quality.py --case all
 ```
 
-`--show-transcripts` optionally prints only the synthetic test character replies.
-Provider exception bodies are suppressed to avoid exposing credentials or dialogue.
-Native Live cannot force a named tool on every utterance; blocking is guaranteed
-once Gemini invokes it. The suite detects bypasses in its fixtures, but arbitrary
-future utterances still depend on model tool-use adherence.
+`--show-transcripts` prints only synthetic character replies. To test the actual
+worker/network path, start a worker from this checkout with agent name
+`brodia-final-test`, then run `AGENT_NAME=brodia-final-test .venv/bin/python
+scripts/test_brodia_live_room.py`. Each declined room remains declined; the script
+may create up to four independent new sessions to observe a random acceptance.
+It cleans up only its own test rooms. Provider exception bodies are suppressed.
+
+
+After rebasing onto the concurrently merged avatar PR, all 38 Python checks and
+the mocked selector checks passed again. Real Gemini phone and Instagram audio
+fixtures were rerun on that integrated branch: both completed the requested
+spoken details, delivered the approved receipt, drew once, and had zero
+language/evaluator failures. Their first-audio measurements were about 2.15 and
+2.25 seconds during concurrent runs. New diagnostics recorded `decision_score=92`
+and probability 0.615. No avatar or FaceTime source was changed by this PR.
+
+The combined offline run exited successfully but printed an ignored LiveKit
+`FfiHandle.__del__` assertion during interpreter shutdown after the tests passed.
+Real Gemini/room runs completed normally. This SDK teardown message was not a
+failed test and was not hidden or treated as a human-call verification.
