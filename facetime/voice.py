@@ -652,6 +652,7 @@ class VoiceLayer:
         feedback_prompt = self.feedback.observe(ev) if self.feedback is not None else None
         if self.feedback is not None:
             if feedback_prompt:
+                print('[brodia] roleplay ended; generating grounded feedback', flush=True)
                 self.ask_voice(feedback_prompt)
             return  # no fitness summary, floor events or legacy handlers
         self.summary.on_event(ev)
@@ -666,9 +667,6 @@ class VoiceLayer:
         if self.handlers is not None:
             try: self.handlers(ev, self.say_now, self.ask_voice)
             except Exception as e: log.warning('handler failed on %s: %r', ev.get('type'), e)
-        if feedback_prompt:
-            print('[brodia] roleplay ended; generating grounded feedback', flush=True)
-            self.ask_voice(feedback_prompt)
 
     def _context(self, text):
         self.n_context += 1

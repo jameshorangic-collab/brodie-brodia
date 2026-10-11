@@ -117,7 +117,13 @@ def build_prompt(config: RoleplayConfig, personality: Personality | None = None)
     return '\n\n'.join(sections)
 
 
-END_PHRASES = ('end practice', 'stop practice', 'let\'s stop', 'lets stop', 'goodbye', 'bye', 'I need to go', 'i need to go')
+END_PHRASES = (
+    'end practice', 'stop practice', "let's stop", 'lets stop', 'goodbye', 'good bye', 'bye',
+    'i need to go', 'i have to go', 'end this conversation', 'end the conversation',
+    'stop this conversation', 'stop the conversation', 'end this call', 'end the call',
+    'end this session', 'end the session', 'end the practice', 'stop the practice',
+    "let's end it", 'lets end it', 'can we end it', 'please end it',
+)
 
 
 # P17-B: which pose observations the coach may cite. Problem states can become one improvement; a sustained good state one strength.
@@ -181,8 +187,9 @@ class FeedbackSession:
     @staticmethod
     def _ends(text):
         import re
-        lower = text.lower()
-        return any(re.search(r'\b' + re.escape(phrase.lower()) + r'\b', lower) for phrase in END_PHRASES)
+        lower = re.sub(r'\s+', ' ', text.lower().replace('’', "'"))
+        return (any(re.search(r'\b' + re.escape(phrase.lower()) + r'\b', lower) for phrase in END_PHRASES)
+                or bool(re.fullmatch(r'(?:please\s+)?(?:end|stop)(?:\s+it)?(?:\s+now)?[.!?]*', lower)))
 
     def _nearby(self, start, end=None):
         """The caller line closest to start within NEAR_S, else the first line inside [start, end]; '' when none."""

@@ -21,6 +21,29 @@ def main():
     assert 'turned away from the camera' in prompt and 'facing the camera' not in prompt
     no_video = FeedbackSession(); prompt = no_video.observe({'type': 'voice', 'role': 'caller', 'text': 'end practice'})
     assert 'No verified visual observation is available' in prompt
+    # These are actual closing words used during the iPhone integration call.
+    for closing in ('Yeah, okay. End end this conversation.', 'Can we end it?',
+                    'Please end the call.', 'Let’s end it.', 'Good bye!', 'I have to go.',
+                    'Please end this session.', 'Stop the conversation.', 'End it.', 'Stop!'):
+        session = FeedbackSession()
+        session.observe({'type': 'voice', 'role': 'caller', 'text': 'Hi, I am Alex.'})
+        assert session.observe({'type': 'voice', 'role': 'coach', 'text': closing}) is None
+        prompt = session.observe({'type': 'voice', 'role': 'caller', 'text': closing})
+        assert prompt and session.finished and 'Hi, I am Alex.' in prompt, closing
+        assert session.observe({'type': 'voice', 'role': 'caller', 'text': closing}) is None
+    for continuing in ('The conversation is fun.', 'I walked by yesterday.',
+                       'Can I get your number?', 'This shift will end soon.',
+                       'Could you stop putting so much sugar in my coffee?'):
+        assert not FeedbackSession._ends(continuing), continuing
+    # Exercise the worker's real event-to-voice handoff, not just phrase matching.
+    from unittest.mock import Mock
+    from facetime.voice import VoiceLayer
+    layer = VoiceLayer.__new__(VoiceLayer)
+    layer.n_events = 0; layer.feedback = FeedbackSession(); layer.ask_voice = Mock()
+    layer.on_event({'type': 'voice', 'role': 'caller', 'text': 'End this conversation.'})
+    layer.on_event({'type': 'voice', 'role': 'caller', 'text': 'Goodbye.'})
+    layer.ask_voice.assert_called_once()
+    assert 'ROLEPLAY IS OVER' in layer.ask_voice.call_args.args[0]
     print('P04 explicit end and grounded feedback transition: PASS')
 
 
