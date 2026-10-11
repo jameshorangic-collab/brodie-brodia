@@ -1,0 +1,12 @@
+{
+  "note": "Brodia practice-partner avatars: faceless figurine renders (transparent PNG, 612x408). The app draws eyes, brows and mouth on top. Feature centers are pixel coordinates in that 612x408 image, placed by eye and checked in a test render. Ink color matches landmarks.json featureInk.",
+  "width": 612,
+  "height": 408,
+  "featureInk": { "r": 41, "g": 35, "b": 30 },
+  "sizes": { "eye": { "rx": 9, "ry": 13 }, "brow": { "w": 34, "h": 6 }, "mouth": { "w": 32, "h": 10 } },
+  "characters": {
+    "maya":  { "file": "brodia-maya.png",  "scenario": "park",    "glassesBaked": false, "eyes": [[268, 232], [352, 232]], "brows": [[268, 203], [352, 203]], "mouth": [310, 284] },
+    "jess":  { "file": "brodia-jess.png",  "scenario": "barista", "glassesBaked": true,  "eyes": [[245, 220], [378, 220]], "brows": [[245, 182], [378, 182]], "mouth": [312, 284] },
+    "nadia": { "file": "brodia-nadia.png", "scenario": "street",  "glassesBaked": false, "eyes": [[272, 228], [358, 228]], "brows": [[272, 200], [358, 200]], "mouth": [315, 280] }
+  }
+}
