@@ -126,6 +126,8 @@ def build_parser():
     ap.add_argument('--vision-notes', action='store_true', default=truthy(os.environ.get('VISION_NOTES')), help='facetime/vision_notes.py: sample the caller video at --vision-notes-fps, '
                                                                                                             'emit vision_note events (facing camera / turned away / out of frame) and frame-change counters (env VISION_NOTES=1)')
     ap.add_argument('--vision-notes-fps', type=float, default=float(os.environ.get('VISION_NOTES_FPS', '1') or 1), help='samples per second for --vision-notes (default 1, at most 2)')
+    ap.add_argument('--brodia-scenario', default=os.environ.get('BRODIA_SCENARIO'), choices=['barista', 'street', 'park'], help='P03 fictional adult roleplay setting; pair with --brodia-receptivity')
+    ap.add_argument('--brodia-receptivity', default=os.environ.get('BRODIA_RECEPTIVITY'), choices=['interested', 'neutral', 'uninterested'], help='P03 roleplay stance; pair with --brodia-scenario')
     ap.add_argument('-h', '--help', action='store_true', help='show this help and exit')
     return ap
 
@@ -156,6 +158,9 @@ def resolve_mode(a):
         elif getattr(a, 'auto', False): a.plan = None
         else: a.plan = a.plan or os.environ.get('PLAN') or read_plan_file(getattr(a, 'plan_file', None)) or DEFAULT_PLAN
     a.vision_fps = max(0.1, min(float(getattr(a, 'vision_fps', 1.0) or 1.0), 2.0))
+    scenario, receptivity = getattr(a, 'brodia_scenario', None), getattr(a, 'brodia_receptivity', None)
+    if bool(scenario) != bool(receptivity):
+        raise ValueError('--brodia-scenario and --brodia-receptivity must be provided together')
     h = getattr(a, 'handlers', None)
     if h and str(h).strip().lower() in ('none', 'off'): a.handlers = 'none'          # kept as the string: the job process resolves the flags again
     elif not h and os.path.exists(os.path.join(STARTER_DIR, 'handlers.py')): a.handlers = os.path.join(STARTER_DIR, 'handlers.py')
@@ -583,6 +588,9 @@ class CoachJob:
                 print(f'[voice] {key_env} is MISSING: voice OFF', flush=True)
             else:
                 persona = read_text(a.persona, DEFAULT_PERSONA)
+                if a.brodia_scenario:
+                    from facetime.brodia import RoleplayConfig, build_prompt
+                    persona += '\n\n' + build_prompt(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
                 if a.plan: plan_line = f'\n\nFor your own reference only, never to be read aloud: the session plan, in order, is {a.plan}.'
                 elif getattr(a, 'plan_text', None): plan_line = '\n\nThe plan you are coaching, step by step (follow it in order, one step at a time; never read it aloud):\n' + a.plan_text
                 else: plan_line = ''
