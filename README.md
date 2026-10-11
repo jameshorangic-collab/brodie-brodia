@@ -118,7 +118,8 @@ With `--avatar --mirror` your pose mirror becomes a small inset in that one vide
 LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --mirror --vision-notes
 ```
 
-See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#character-video---avatar).
+See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#character-video---avatar) and
+[real-time animation, preview and live test](docs/AVATAR_ANIMATION.md).
 
 ### Real FaceTime via Chert's open-source connector
 
@@ -127,7 +128,7 @@ This path uses [cherthq/chert-facetime-opensource](https://github.com/cherthq/ch
 bridges it into the `brodia` room. You need Node 22.22+, Google Chrome (Chromium won't work) and an iPhone.
 
 ```bash
-LINE=1 bash scripts/run.sh coach                       # Terminal A: worker under its dispatch name
+LINE=1 bash scripts/run.sh coach gemini --perception off --avatar --mirror-shape landscape  # Terminal A
 bash scripts/run.sh facetime barista uninterested      # Terminal B: defaults to park neutral
 ```
 
@@ -162,7 +163,7 @@ The complete list is in the engine guide. One opt-in smoke test does call the re
 
 Known limits:
 
-- **The FaceTime open-source path is audio only.** The connector forwards only the caller's audio, so feedback there
+- **Caller video is unavailable on the FaceTime open-source path.** The connector forwards caller audio and receives our avatar video with `--avatar`; feedback there
   is voice-only and vision notes stay empty. This is not FaceTime Video analysis.
 - The agent publishes no video, so the iPhone sees the connector's waiting screen.
 - FaceTime Video on the shared Chert line is undocumented for the hackathon CLI

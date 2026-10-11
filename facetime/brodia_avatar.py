@@ -8,9 +8,10 @@ for Brodie's own puppet (that class and its landmarks.json are untouched). Scena
   - backdrop: a calm vertical gradient in the scenario's tint with a soft glow behind the head (no generated imagery);
   - the figurine is upscaled once (LANCZOS), its cut-off bottom edge faded into the backdrop, and composited onto three
     "breathing" plates (head 0/1/2 steps higher); per frame: copy a plate, draw eyes/brows/mouth with anti-aliased cv2;
-  - eyes blink every 2.8-5.5 s (about 130 ms); the mouth is one dark rounded shape: open shapes cycle while the agent's
-    audio is playing (speaking=True), a resting smile otherwise; receptivity tweaks the resting brows/mouth (interested a
-    little warmer, uninterested flatter).
+  - eyes blink every 3-6 s (160 ms); subtle sway/tilt keeps PNG and drawn landmarks together;
+  - output PCM RMS drives small/medium/wide mouth shapes, scheduled against the existing source queue. Quiet frames,
+    exhausted audio and interruptions close it; speaking-state cycling is the fallback for a custom/older audio transport;
+  - neutral, smiling, playful/flirty and thinking faces read existing rapport and Gemini thinking state without changing them.
 
 Coach (`coach` section): brodie-coach.png (default), -hype, -think. 1024x1024, faces BAKED IN: these are only scaled
 (LANCZOS) and positioned, never drawn on or edited (brodie-character-kit rule). Gentle idle bob; while speaking a slightly
@@ -28,6 +29,7 @@ corner inset (~28 % of the width) inside the same track; with no (or stalled) ca
 Privacy: as for the mirror, caller frames are processed in memory only; nothing is written or logged.
 
 Offline sheet: .venv/bin/python -m facetime.brodia_avatar [out_dir]
+Live local preview: .venv/bin/python -m facetime.avatar_preview (http://127.0.0.1:8091)
 """
 import asyncio, json, math, os, random, sys, threading, time
 import numpy as np
@@ -40,7 +42,7 @@ TRACK_NAME = 'brodia-avatar'
 SIZES = {'portrait': (540, 960), 'landscape': (960, 540)}      # (W, H), the same shapes as the mirror (--mirror-shape)
 SPEAKING_SHAPES = ['small', 'medium', 'o', 'small', 'wide', 'medium', 'o', 'mm']
 MOUTH_STEP_S = 0.11
-BLINK_EVERY = (2.8, 5.5); BLINK_S = 0.13
+BLINK_EVERY = (3.0, 6.0); BLINK_S = 0.16
 BREATH_S = 3.8; BOB_STEPS = 3
 INSET_FRAC = 0.28
 STALE_S = 3.0
@@ -59,6 +61,13 @@ MOODS = {
     'neutral':      dict(brow_lift=0.0, arch=0.6, smile=0.6, width=0.9),
     'uninterested': dict(brow_lift=-0.25, arch=0.25, smile=0.18, width=0.75),
 }
+EXPRESSIONS = {
+    'neutral': dict(brow_lift=0.0, arch=0.35, smile=0.15, width=0.8),
+    'smiling': dict(brow_lift=0.2, arch=0.85, smile=1.0, width=1.1),
+    'playful': dict(brow_lift=0.35, arch=0.7, smile=0.85, width=1.0),
+    'thinking': dict(brow_lift=-0.1, arch=0.35, smile=0.05, width=0.65),
+}
+MOUTH_NOISE_RMS = 0.008  # -42 dBFS: quiet PCM closes the mouth, even within a spoken reply
 
 
 def load_spec(parts=PARTS):
@@ -133,6 +142,8 @@ class CharacterAvatar:
         self.ink = tuple(self.spec['featureInk'][k] for k in 'rgb')
         self.rng = rng or random.Random()
         self.phase = 'partner'; self.coach_pose = 'default'
+        self.expression = None  # None preserves PR #25's receptivity face; the worker selects expressions
+        self._mouth_level = 0.0
         portrait = H > W
         # partner layout: scale the figurine so the face reads at call size; the face anchor (between eyes and mouth) sits at
         # 42 % (portrait) / 52 % (landscape) of the height
@@ -173,6 +184,8 @@ class CharacterAvatar:
     def _eyes(self, img, dy, closed):
         for cx, cy, rx, ry in self.feat['eyes']:
             cy += dy
+            if self.expression == 'playful': ry *= 0.85
+            if self.expression == 'thinking': cx += rx * 0.28; ry *= 0.9
             if closed:                                                        # a closed lid: a short downward curve
                 cv2.polylines(img, [_pts(_q((cx - rx * 1.1, cy), (cx, cy + ry * 0.45), (cx + rx * 1.1, cy)))], False, self.ink,
                               max(2, round(ry * 0.28)), cv2.LINE_AA, SHIFT)
@@ -182,16 +195,17 @@ class CharacterAvatar:
             cv2.circle(img, (round((cx - rx * 0.32) * ONE), round((cy - ry * 0.4) * ONE)), round(gr * ONE), (246, 244, 238), -1, cv2.LINE_AA, SHIFT)
 
     def _brows(self, img, dy, lift=0.0):
-        m = MOODS[self.receptivity]
+        m = EXPRESSIONS.get(self.expression, MOODS[self.receptivity])
         for i, (cx, cy, w, h) in enumerate(self.feat['brows']):
             y = cy + dy - (m['brow_lift'] + lift) * h
+            if self.expression in ('playful', 'thinking'): y -= (1.0 if i == 0 else -0.2) * h
             arch = m['arch'] * h
             cv2.polylines(img, [_pts(_q((cx - w / 2, y + arch * 0.5), (cx, y - arch), (cx + w / 2, y + arch * 0.5)))], False, self.ink,
                           max(2, round(h * 0.75)), cv2.LINE_AA, SHIFT)
 
     def _mouth(self, img, dy, shape):
         cx, cy, w, h = self.feat['mouth']; cy += dy; half = w / 2; ink = self.ink
-        m = MOODS[self.receptivity]; stroke = max(2, round(h * 0.42))
+        m = EXPRESSIONS.get(self.expression, MOODS[self.receptivity]); stroke = max(2, round(h * 0.42))
         def curve(span, depth, weight):
             cv2.polylines(img, [_pts(_q((cx - span, cy), (cx, cy + depth * 2), (cx + span, cy)))], False, ink, weight, cv2.LINE_AA, SHIFT)
         def blob(span, rise, depth):                                          # top edge (rise) and bottom edge (depth) curves
@@ -206,29 +220,51 @@ class CharacterAvatar:
         elif shape == 'o': cv2.ellipse(img, (round(cx * ONE), round((cy + h * 0.45) * ONE)), (round(half * 0.36 * ONE), round(h * 0.7 * ONE)), 0, 0, 360, ink, -1, cv2.LINE_AA, SHIFT)
         else: curve(half * m['width'], h * m['smile'] * 0.5, stroke)
 
-    def mouth_shape(self, speaking, now):
-        if not speaking: return 'rest'
+    def mouth_shape(self, speaking, now, audio_level=None):
+        if audio_level is not None:
+            level = float(audio_level)
+            if not math.isfinite(level) or level <= MOUTH_NOISE_RMS:
+                self._mouth_level = 0.0; return 'rest'
+            # Fast attack, modest release; silence bypasses smoothing so stops never leave an open mouth.
+            level = min(1.0, max(0.0, (level - MOUTH_NOISE_RMS) / 0.16))
+            self._mouth_level += (level - self._mouth_level) * (0.85 if level > self._mouth_level else 0.65)
+            if self._mouth_level < 0.22: return 'small'
+            if self._mouth_level < 0.62: return 'medium'
+            return 'wide'
+        if not speaking: self._mouth_level = 0.0; return 'rest'
         if now - self._mouth_t > MOUTH_STEP_S:
             self._mouth_i = (self._mouth_i + self.rng.choice((1, 1, 2))) % len(SPEAKING_SHAPES); self._mouth_t = now
         return SPEAKING_SHAPES[self._mouth_i]
 
     def blinking(self, now):
         if now >= self._blink_at + BLINK_S:
-            self._blink_at = now + self.rng.uniform(*BLINK_EVERY)
+            self._blink_at += self.rng.uniform(*BLINK_EVERY)
+            if self._blink_at < now: self._blink_at = now + self.rng.uniform(*BLINK_EVERY)
         if self._blink_at <= now < self._blink_at + BLINK_S:
             if getattr(self, '_last_blink', None) != self._blink_at: self._last_blink = self._blink_at; self.blinks += 1
             return True
         return False
 
-    def partner_frame(self, speaking=False, now=None, mouth=None, blink=None):
+    def partner_frame(self, speaking=False, now=None, mouth=None, blink=None, audio_level=None, expression=None, motion=True):
         now = time.monotonic() if now is None else now
+        if expression is not None:
+            if expression not in EXPRESSIONS: raise ValueError(f'unknown expression: {expression}')
+            self.expression = expression
         k = int((math.sin((now - self.t0) * 2 * math.pi / BREATH_S) + 1) / 2 * (BOB_STEPS - 0.001)); dy = -k * self.step
         img = self.plates[k].copy()
         closed = self.blinking(now) if blink is None else blink
-        shape = mouth or self.mouth_shape(speaking, now)
+        shape = mouth or self.mouth_shape(speaking, now, audio_level)
+        self.last_mouth_shape = shape
         self._eyes(img, dy, closed)
         self._brows(img, dy, lift=0.18 if shape in ('wide', 'o') else 0.0)
         self._mouth(img, dy, shape)
+        if motion:
+            t = now - self.t0
+            # Transform face and PNG together, keeping landmarks registered and the UI label stationary.
+            angle = 0.45 * math.sin(t * 2 * math.pi / 7.3)
+            matrix = cv2.getRotationMatrix2D((self.size[0] / 2, self.feat['mouth'][1]), angle, 1.0)
+            matrix[0, 2] += 1.6 * self.s * math.sin(t * 2 * math.pi / 5.7)
+            img = cv2.warpAffine(img, matrix, self.size, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
         return img
 
     # ---- coach ----
@@ -294,7 +330,10 @@ class CharacterAvatar:
     def frame(self, speaking=False, now=None, phase=None, inset=None, **kw):
         t = time.perf_counter()
         phase = phase or self.phase
-        img = self.coach_frame(speaking, now, **kw) if phase == 'coach' else self.partner_frame(speaking, now, **kw)
+        if phase == 'coach':
+            kw = {k: v for k, v in kw.items() if k not in ('audio_level', 'expression', 'motion')}
+            img = self.coach_frame(speaking, now, **kw)
+        else: img = self.partner_frame(speaking, now, **kw)
         if phase != 'coach': self._label(img, self.label)
         if inset is not None: self._inset(img, inset)
         self.n += 1; self.ms += (time.perf_counter() - t) * 1000
@@ -317,13 +356,38 @@ def agent_speaking(job, window_s=0.15):
     except Exception: return False
 
 
+def agent_audio_level(job):
+    pl = getattr(job, 'player', None)
+    try: return pl.audio_level() if pl is not None and hasattr(pl, 'audio_level') else None
+    except Exception: return None  # older/custom audio transport: keep speaking-state fallback
+
+
+def agent_expression(job, speaking=False):
+    """Read existing Gemini/rapport state only. No model calls, scoring changes or transcript heuristics."""
+    a = getattr(job, 'a', None)
+    override = getattr(job, 'avatar_expression', None) or getattr(a, 'avatar_expression', 'auto')
+    if override in EXPRESSIONS: return override
+    model = getattr(getattr(job, 'voice', None), 'model', None)
+    session = getattr(model, 'session', None)
+    if not speaking and getattr(session, 'agent_state', None) == 'thinking': return 'thinking'
+    state = getattr(getattr(model, 'controller', None), 'state', None)
+    if state is not None:
+        if getattr(state, 'boundaries', None) or getattr(state, 'finished', False): return 'neutral'
+        score = getattr(state, 'score', 0)
+        if score >= 65: return 'playful'
+        if score >= 40: return 'smiling'
+        return 'neutral'
+    rec = getattr(a, 'brodia_receptivity', 'neutral')
+    return 'playful' if rec == 'interested' else 'smiling' if speaking and rec == 'neutral' else 'neutral'
+
+
 # ---- the worker side: one task per job (facetime/worker.py starts it with --avatar) ----
 async def run_for_job(job, fps=15.0, shape='portrait', mirror=False, mirror_fps=10.0, variant='lite', pose_loader=None, flip=True):
     """Publish TRACK_NAME and feed it until the job closes. One loop, rendering in a worker thread. With mirror=True the caller's
     pose mirror is a corner inset (pose at most mirror_fps, newest caller frame only). Never raises into the job."""
     from livekit import rtc
     from facetime import brodia_mirror as bm
-    fps = max(1.0, min(float(fps or 15.0), 30.0)); size = SIZES.get(shape, SIZES['portrait']); W, H = size
+    fps = max(10.0, min(float(fps or 15.0), 15.0)); size = SIZES.get(shape, SIZES['portrait']); W, H = size
     a = getattr(job, 'a', None)
     scenario = getattr(a, 'brodia_scenario', None) or 'park'; receptivity = getattr(a, 'brodia_receptivity', None) or 'neutral'
     source = None; mir = None; job.avatar_track = None; job.avatar = None
@@ -347,17 +411,20 @@ async def run_for_job(job, fps=15.0, shape='portrait', mirror=False, mirror_fps=
             if av.phase != 'coach' and feedback_started(job):
                 av.phase = 'coach'; print('[avatar] roleplay over: switching to Coach Brodie for the feedback', flush=True)
             speaking = agent_speaking(job)
+            audio_level = agent_audio_level(job)
+            if audio_level is not None: speaking = audio_level > MOUTH_NOISE_RMS
+            expression = agent_expression(job, speaking)
             frame = None
             if mir is not None:
                 slot = getattr(job, 'latest', None); now = time.monotonic()
                 if slot is None or now - slot[2] > STALE_S: inset = None
                 elif slot[4] != last_seq and now - last_pose >= pose_period * 0.9: frame = slot[0]; last_seq = slot[4]; last_pose = now
-            def render(frame=frame, speaking=speaking):
+            def render(frame=frame, speaking=speaking, audio_level=audio_level, expression=expression):
                 nonlocal inset
                 if frame is not None:
                     rgb = bm.frame_to_rgb(frame)
                     inset = bm.compose(rgb, mir.landmarks(rgb), None, av.inset_size(), mir.flip, tag=None)
-                return bm.to_video_frame(av.frame(speaking=speaking, inset=inset))
+                return bm.to_video_frame(av.frame(speaking=speaking, audio_level=audio_level, expression=expression, inset=inset))
             out = await asyncio.to_thread(render)
             if getattr(job, 'closed', False): break
             source.capture_frame(out)

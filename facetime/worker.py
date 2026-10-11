@@ -139,7 +139,9 @@ def build_parser():
     ap.add_argument('--mirror-shape', default=os.environ.get('BRODIA_MIRROR_SHAPE', 'portrait'), choices=['portrait', 'landscape'], help='mirror track shape: portrait 540x960 (FaceTime, default) or landscape 960x540 (env BRODIA_MIRROR_SHAPE)')
     ap.add_argument('--avatar', action='store_true', default=truthy(os.environ.get('BRODIA_AVATAR')), help='facetime/brodia_avatar.py: publish the character video "brodia-avatar" '
                     '(partner for the scenario, Coach Brodie for the feedback); with --mirror the pose mirror becomes a corner inset of it (env BRODIA_AVATAR=1)')
-    ap.add_argument('--avatar-fps', type=float, default=float(os.environ.get('BRODIA_AVATAR_FPS', '15') or 15), help='avatar frames per second (default 15; env BRODIA_AVATAR_FPS)')
+    ap.add_argument('--avatar-fps', type=float, default=float(os.environ.get('BRODIA_AVATAR_FPS', '15') or 15), help='avatar frames per second (default 15, clamped to 10–15; env BRODIA_AVATAR_FPS)')
+    ap.add_argument('--avatar-expression', choices=['auto', 'neutral', 'smiling', 'playful', 'thinking'], default=os.environ.get('BRODIA_AVATAR_EXPRESSION', 'auto'),
+                    help='avatar expression; auto follows Gemini thinking state and existing rapport (playful = flirty)')
     ap.add_argument('--brodia-scenario', default=os.environ.get('BRODIA_SCENARIO'), choices=['barista', 'street', 'park'], help='P03 fictional adult roleplay setting; pair with --brodia-receptivity')
     ap.add_argument('--brodia-receptivity', default=os.environ.get('BRODIA_RECEPTIVITY'), choices=['interested', 'neutral', 'uninterested'], help='P03 roleplay stance; pair with --brodia-scenario')
     ap.add_argument('-h', '--help', action='store_true', help='show this help and exit')
