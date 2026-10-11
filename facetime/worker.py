@@ -123,6 +123,9 @@ def build_parser():
                                                                                                         'open = always allowed to speak, nothing is ever cut (the default with --perception off; env FLOOR)')
     ap.add_argument('--vision', action='store_true', default=truthy(os.environ.get('VISION')), help='with --voice gemini: tee the caller\'s video into the model session at --vision-fps (env VISION=1)')
     ap.add_argument('--vision-fps', type=float, default=float(os.environ.get('VISION_FPS', '1') or 1), help='frames per second handed to the model with --vision (default 1, at most 2; JPEG per frame)')
+    ap.add_argument('--vision-notes', action='store_true', default=truthy(os.environ.get('VISION_NOTES')), help='facetime/vision_notes.py: sample the caller video at --vision-notes-fps, '
+                                                                                                            'emit vision_note events (facing camera / turned away / out of frame) and frame-change counters (env VISION_NOTES=1)')
+    ap.add_argument('--vision-notes-fps', type=float, default=float(os.environ.get('VISION_NOTES_FPS', '1') or 1), help='samples per second for --vision-notes (default 1, at most 2)')
     ap.add_argument('-h', '--help', action='store_true', help='show this help and exit')
     return ap
 
@@ -248,6 +251,7 @@ class CoachJob:
         self.session_state = None; self.probes_ignored = 0        # the probe (--latency-probe) never beeps or opens the floor during an active set
         self.voice_mode = perception_off(a)                       # --perception off: no Perception; the worker emits its own session/status events
         self.t0 = time.monotonic(); self.ev_seq = 0; self.vision = None; self.vision_logged = False; self.session_opened = False; self.open_task = None
+        self.vision_observer = None                               # --vision-notes: facetime/vision_notes.Observer (notes, summary()) once the task starts
 
     # ---- lifecycle ----
     async def run(self):
@@ -296,6 +300,9 @@ class CoachJob:
             self.thread = threading.Thread(target=self.feed, daemon=True, name='perception-feed'); self.thread.start()
             self.consumer_tasks = []
         self.consumer_tasks += [asyncio.create_task(fn(self), name=f'consumer-{fn.__name__}') for fn in CONSUMERS]
+        if getattr(a, 'vision_notes', False):                                   # Neil P08/P09: facetime/vision_notes.py, reads self.latest only; idles until a caller is bound
+            from facetime.vision_notes import run_for_job
+            self.consumer_tasks.append(asyncio.create_task(run_for_job(self, fps=a.vision_notes_fps), name='consumer-vision-notes'))
         if self.voice is not None:
             self.consumer_tasks.append(asyncio.create_task(self.voice.run(), name='consumer-voice'))
         await self.done.wait()
