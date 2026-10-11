@@ -68,6 +68,17 @@ Open the third printed line on your phone, tap to enable audio, prop the phone u
 
 Always start Terminal A before the phone joins.
 
+## Browser practice selector
+
+With `.env.local` loaded in both terminals, start the worker first and then the local selector:
+
+```
+python -m facetime.worker --perception off --voice openai dev
+python -m facetime.brodia_server
+```
+
+Open `http://127.0.0.1:8080`, choose a scenario and receptivity, and allow microphone/camera access. The selector creates a fresh room, dispatches `brodia` with the selected configuration, and uses a short-lived token; it never sends API secrets to the browser.
+
 ## What you change
 
 Only these three files:
