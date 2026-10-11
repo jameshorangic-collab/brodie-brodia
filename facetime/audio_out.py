@@ -197,6 +197,12 @@ class CuePlayer:
         self._stop = False
         self.n_dropped = 0
         self.mix = None; self._pump_task = None; self.pump_lead_s = 0.04; self.mix_frames = 0   # attach_mixer()
+        self.last_voice_t = -1e9     # monotonic time of the last frame with real energy pushed to the source (clip or model voice)
+
+    def speaking(self, window_s=0.15):
+        """Cheap: True when an audible frame (a clip or the mixed model voice) was pushed within window_s. The source queue is
+        only ~100 ms deep, so this tracks what the caller hears to within about that."""
+        return time.monotonic() - self.last_voice_t <= window_s
 
     def attach_mixer(self, duck_db=-10.0, hold_ms=150, gain_db=0.0, lead_ms=40, hold=True):
         """Add the optional mixer input (see the module docstring); returns the MixInput. The pump starts with run()."""
@@ -278,7 +284,10 @@ class CuePlayer:
             try: self.on_record(rec)
             except Exception as e: log.warning('on_record failed: %s', e)
 
+    SPEAK_PEAK = 400            # int16 peak above which a pushed frame counts as audible speech (about -38 dBFS)
+
     def _frame(self, chunk):
+        if len(chunk) and int(np.abs(chunk).max()) > self.SPEAK_PEAK: self.last_voice_t = time.monotonic()   # speaking() for the avatar's mouth
         if self.rtc is not None:
             return self.rtc.AudioFrame(chunk.tobytes(), SAMPLE_RATE, 1, len(chunk))
         return chunk

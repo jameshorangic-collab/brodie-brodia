@@ -60,6 +60,7 @@ async function test(scenario, receptivity, cameraFails = false) {
   const agentVideo = { kind: 'video', attach: () => agentEl, detach: () => [agentEl] };
   active.events.track(agentVideo);
   assert.equal(nodes['#media'].elements.at(-1).className, 'agent');
+  assert.equal(agentEl.title, `${{barista: 'Jess', street: 'Nadia', park: 'Maya'}[scenario]} · ${scenario}`); // character + scenario label
   assert.ok(/#media \.agent\{order:-1;flex:1 1 100%/.test(html), 'agent video styled prominently');
   active.events.untrack(agentVideo);
   assert.equal(agentEl.removed, true); // an unpublished agent track leaves no frozen element
