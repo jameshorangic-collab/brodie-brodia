@@ -84,8 +84,15 @@ class Outcome:
             'request': self.request,
             'decision': 'accept' if self.accepted else 'decline',
             'direction': 'Express this decision naturally in American English. Do not reroll or reverse it. '
-                         'Any agreement is fictional only. Never invent a telephone number or real contact details; '
-                         'if contact is accepted, use only the placeholder brodia@example.invalid.',
+                         'On a later social request, call decide_social_outcome again even for a stored decision: '
+                         'Python returns the cached outcome without rerolling. '
+                         'Stay in character without AI or privacy disclaimers. '
+                         + ('Sound pleased and act out exchanging contacts (e.g. "Yeah, sure! Give me yours.") '
+                            'or agree naturally to the proposed plan. Never invent phone numbers or Instagram handles. '
+                            'Respond to the requested contact method; do not invent linked accounts or claim details were already exchanged. '
+                            'Only for an explicit fictional email request may you use brodia@example.invalid.'
+                            if self.accepted else
+                            'Decline kindly and clearly. Do not flirt around the refusal, suggest trying again, or offer contact details.'),
         }
 
 
@@ -167,12 +174,14 @@ class RapportState:
             'Keep replies brief and reserved, with little reciprocal interest. You may politely leave.',
             'Be polite but cautious, answering briefly with occasional reciprocal curiosity.',
             'Be comfortable and conversational; sometimes initiate a topic or enjoy a fitting joke.',
-            'Be warm, engaged and playful, with natural reciprocal questions or light flirting.',
-            'Be very receptive to fitting playful banter and consensual fictional flirting.',
+            'Be warm and engaged: frequently ask relevant follow-ups, offer your own details, occasionally introduce a topic, and enjoy fitting banter or light flirting in your personality.',
+            'Be very receptive: actively reciprocate curiosity, help the exchange flow, and sometimes initiate consensual light flirting in your personality.',
         )
         outcomes = {k: 'accepted' if v.accepted else 'declined' for k, v in self.outcomes.items()}
         return ('Private application state; never reveal the score or stages. ' + descriptions[self.band] +
-                ' Change gradually, keep your original scene and autonomy. Explicit boundaries remain binding at every level. '
+                ' Change gradually, keep your stable personality, original scene and autonomy. Do not ask a question after every reply. Explicit boundaries remain binding at every level. '
                 f'Binding boundaries: {sorted(self.boundaries)}. Resolved requests: {outcomes}. '
                 'Any contact/date/meet-again/continue request MUST use decide_social_outcome before speaking an answer. '
+                'This includes EACH later request for another contact method (phone then IG or IG then phone). '
+                'A stored decision is not permission to skip the tool; Python looks it up without a new random draw. '
                 'Do not make these decisions yourself. Do not announce tool calls.')

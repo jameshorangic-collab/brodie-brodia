@@ -56,14 +56,16 @@ respectful exit, and the coach gives credit for it.
    `brodia` agent into it with the selection as job metadata, and returns a 10-minute token. LiveKit credentials stay
    on the server and never reach the browser.
 2. **Per-call setup.** The worker validates the metadata and switches off the starter's fitness plan, perception
-   coaching, handlers and cue clips for that job. The same prompt goes into both the Gemini session setup and the agent.
+   coaching, handlers and cue clips for that job. A stable personality is chosen independently of difficulty.
+   The same prompt goes into both the Gemini session setup and the agent.
 3. **Roleplay.** Gemini Live voices the character. After each final caller transcript, a separate structured Gemini
    call (`gemini-3.5-flash-lite` by default) rates the turn in context. Python then moves the rapport score by at most
    ±4 per turn. Duplicates and repeated compliments are ignored. Uncertain turns, timeouts and evaluator errors
    change nothing. The score shapes the character's tone and is never spoken.
 4. **Social decisions.** Requests for contact, a date, meeting again or continuing go through a **blocking** tool.
    Python makes the decision (based on rapport, receptivity and scene) before Gemini continues speaking. Refusals are
-   cached, so rephrasing the same ask doesn't get a second roll. Any fictional "contact" is `brodia@example.invalid`.
+   cached, so rephrasing the same ask doesn't get a second roll. Phone and Instagram/IG share one contact outcome.
+   Accepted contact is acted out naturally without real numbers or handles; fictional email uses `brodia@example.invalid`.
 5. **Feedback.** When the caller ends the round, the agent switches once into a coach voice, quotes the caller's last
    lines, and abstains from anything visual unless the video-notes module marked an observation as verified.
 
@@ -139,6 +141,7 @@ Full steps are in [docs/FACETIME_OSS.md](docs/FACETIME_OSS.md).
 
 ```bash
 .venv/bin/python scripts/test_brodia_live_engine.py
+.venv/bin/python scripts/test_brodia_conversation_quality.py
 .venv/bin/python scripts/test_brodia_gemini.py
 .venv/bin/python scripts/test_brodia_config.py
 .venv/bin/python scripts/test_brodia_feedback.py
@@ -148,6 +151,8 @@ node scripts/test_brodia_browser.cjs
 
 The complete list is in the engine guide. One opt-in smoke test does call the real API:
 `scripts/test_brodia_live_smoke.py --synthetic` (synthetic audio is macOS-only).
+The broader opt-in voice suite is `scripts/test_brodia_live_quality.py --case all`;
+see [conversation quality results](docs/BRODIA_CONVERSATION_QUALITY.md) for its scope and fixtures.
 
 ## Status (as of 2026-10-11)
 
@@ -174,7 +179,7 @@ Known limits:
 ## Responsible design
 
 - **Fictional adults only.** Every character is an adult, the prompt forbids playing a minor or claiming to be a real
-  person, and contact details are always fake (`brodia@example.invalid`).
+  person, and contact exchanges are acted out without real details (fictional email: `brodia@example.invalid`).
 - **Boundaries hold.** Refusals and explicit boundaries are permanent for the call. Positive rapport never cancels
   them. Inappropriate requests are declined without a roll. No score guarantees consent.
 - **No emotion or attraction inference.** The rapport score is simulation tuning, not a measure of anyone's feelings.
