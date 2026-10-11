@@ -8,7 +8,7 @@ const source = html.match(/<script>\s*([\s\S]*?)<\/script>/)[1];
 
 async function test(scenario, receptivity, cameraFails = false) {
   const nodes = {
-    '#start': {}, '#leave': {}, '#status': {},
+    '#start': {}, '#leave': {}, '#status': {}, '#contact': {hidden: true},
     '#media': { elements: [], append(e) { this.elements.push(e); }, replaceChildren() { this.elements = []; } },
   };
   let sent, active;
@@ -22,6 +22,7 @@ async function test(scenario, receptivity, cameraFails = false) {
           if (cameraFails) { this.camera = false; const e = new Error('Permission denied'); e.name = 'NotAllowedError'; throw e; }
           this.camera = on;
         },
+        identity: 'brodia-browser',
         trackPublications: new Map(cameraFails ? [['audio', { track: audio }]] : [['audio', { track: audio }], ['video', { track: { kind: 'video', attach: () => ({}) } }]]),
       };
     }
@@ -32,8 +33,8 @@ async function test(scenario, receptivity, cameraFails = false) {
   }
   const context = {
     document: { querySelector(selector) { return selector.includes('name=s') ? { value: scenario } : selector.includes('name=r') ? { value: receptivity } : nodes[selector]; } },
-    console: { info() {} },
-    LivekitClient: { Room, RoomEvent: { TrackSubscribed: 'track', TrackUnsubscribed: 'untrack', Disconnected: 'disconnect' } },
+    TextDecoder, console: { info() {} },
+    LivekitClient: { Room, RoomEvent: { TrackSubscribed: 'track', TrackUnsubscribed: 'untrack', Disconnected: 'disconnect', DataReceived: 'data' } },
     fetch: async (url, options) => {
       assert.equal(url, '/api/session'); sent = JSON.parse(options.body);
       return { ok: true, json: async () => ({ url: 'wss://example.invalid', token: 'offline-token', ...sent }) };
@@ -64,7 +65,24 @@ async function test(scenario, receptivity, cameraFails = false) {
   assert.ok(/#media \.agent\{order:-1;flex:1 1 100%/.test(html), 'agent video styled prominently');
   active.events.untrack(agentVideo);
   assert.equal(agentEl.removed, true); // an unpublished agent track leaves no frozen element
+  const receive = (event, topic = 'brodia.social_outcome', participant = {identity: 'agent-test'}) =>
+    active.events.data(new TextEncoder().encode(JSON.stringify(event)), participant, undefined, topic);
+  const accepted = {type: 'social_outcome', request: 'contact', accepted: true, contact_method: 'phone', demo_contact: '202-555-0147'};
+  receive(accepted);
+  assert.equal(nodes['#contact'].hidden, false);
+  assert.ok(nodes['#contact'].textContent.includes('Contact exchanged! Demo phone: 202-555-0147'));
+  receive({...accepted, demo_contact: '212-555-9999'});
+  assert.ok(!nodes['#contact'].textContent.includes('9999'), 'unapproved number must never display');
+  receive({...accepted, contact_method: 'instagram', demo_contact: '@brodia-demo.invalid'});
+  assert.ok(nodes['#contact'].textContent.includes('not a real account'));
+  receive({...accepted, accepted: false, demo_contact: null});
+  assert.equal(nodes['#contact'].textContent, 'Contact declined. Respect this boundary.');
+  receive(accepted, 'wrong.topic');
+  receive(accepted, 'brodia.social_outcome', {identity: 'brodia-browser'});
+  assert.equal(nodes['#contact'].textContent, 'Contact declined. Respect this boundary.');
   await nodes['#leave'].onclick();
+  assert.equal(nodes['#contact'].hidden, true);
+  assert.equal(nodes['#contact'].textContent, '');
   assert.equal(active.disconnected, true); assert.equal(nodes['#media'].elements.length, 0);
 }
 
@@ -101,5 +119,6 @@ async function testNextCall(scenario, receptivity) {
   }
   await test('park', 'neutral', true);
   console.log('camera denied: call continues voice-only with honest status: PASS');
+  console.log('Approved fictional receipts, invalid contact rejection, boundary receipt and cleanup: PASS');
   console.log('9/9 browser selections, audio preferences, local mute, remote playback, agent video (prominent) and self-view (small), and disconnect: PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });

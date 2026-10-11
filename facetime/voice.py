@@ -517,6 +517,8 @@ class GeminiModel:
                 if self.on_turn: self.on_turn('coach', text)
 
     def _on_user_transcript(self, ev):
+        if self.controller is not None:
+            self.controller.hint_contact_method(ev.transcript or '')  # hint only; never decide from partial speech
         if (ev.transcript or '').strip(): self.last_caller_t = time.monotonic()                      # interim transcripts count: the caller is talking
         if getattr(ev, 'is_final', False) and (ev.transcript or '').strip():
             if self.controller is not None: self.controller.observe('caller', ev.transcript.strip(), getattr(ev, 'item_id', None))

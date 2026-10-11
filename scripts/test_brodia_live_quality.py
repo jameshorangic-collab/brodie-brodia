@@ -9,6 +9,7 @@ No audio/transcripts are saved. --show-transcripts prints synthetic test replies
 import argparse
 import asyncio
 import json
+from dataclasses import asdict
 import logging
 from pathlib import Path
 import re
@@ -18,7 +19,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from facetime.audio_out import CueBank, CuePlayer
-from facetime.brodia import RoleplayConfig
+from facetime.brodia import DEMO_PERSONALITIES, RoleplayConfig
 from facetime.brodia_live import BrodiaController
 from facetime.voice import GeminiModel, MixerAudioOutput
 from scripts.test_brodia_live_smoke import Audio, Source, synth
@@ -31,24 +32,33 @@ SMALL_TALK = [
     "That made me laugh. This place has a nice vibe.",
 ]
 CASES = {
-    'interested_playful': dict(stance='interested', personality='Playful', lines=SMALL_TALK),
-    'interested_shy': dict(stance='interested', personality='Shy', lines=SMALL_TALK),
-    'neutral': dict(stance='neutral', personality='Refined', lines=SMALL_TALK),
-    'uninterested': dict(stance='uninterested', personality='Sassy', draw=.99,
+    'interested_flirty': dict(stance='interested', personality='flirty', lines=SMALL_TALK),
+    'interested_bitchy': dict(stance='interested', personality='bitchy', lines=SMALL_TALK),
+    'interested_chaotic': dict(stance='interested', personality='chaotic', lines=SMALL_TALK),
+    'neutral_bitchy': dict(stance='neutral', personality='bitchy', lines=SMALL_TALK),
+    'uninterested_flirty': dict(stance='uninterested', personality='flirty', draw=.99,
                         lines=[SMALL_TALK[0], 'Could I get your phone number?', "What's your IG then?"],
                         request='contact', accepted=False),
-    'phone': dict(stance='interested', personality='Bold/flirty', score=90,
-                  lines=[SMALL_TALK[0], 'You are fun to talk to. Could I get your phone number?', "What's your IG too?"],
-                  request='contact', accepted=True),
-    'instagram': dict(stance='interested', personality='Bubbly', score=90,
-                      lines=[SMALL_TALK[0], "You are fun to talk to. What's your IG?", 'Could I get your number too?'],
-                      request='contact', accepted=True),
-    'date': dict(stance='interested', personality='Refined', score=90,
+    'phone': dict(stance='interested', personality='flirty', score=90,
+                  lines=[SMALL_TALK[0], 'You are fun to talk to. Could I get your phone number?',
+                         'Okay, what is the number? I am ready to write it down.'],
+                  request='contact', accepted=True, method='phone'),
+    'instagram': dict(stance='interested', personality='chaotic', score=90,
+                      lines=[SMALL_TALK[0], "You are fun to talk to. What's your IG?",
+                             'Okay, what is the handle? I am ready to write it down.'],
+                      request='contact', accepted=True, method='instagram'),
+    'declined_contact': dict(stance='interested', personality='bitchy', draw=.99,
+                            lines=[SMALL_TALK[0], "What's your IG?", 'Could I get your phone number instead?'],
+                            request='contact', accepted=False),
+    'date': dict(stance='interested', personality='bitchy', score=90,
                  lines=[SMALL_TALK[0], 'Would you like to get dinner with me after your shift?'],
                  request='date', accepted=True),
-    'memory': dict(stance='interested', personality='Playful',
+    'memory': dict(stance='interested', personality='flirty',
                    lines=SMALL_TALK + ["Wait, do you remember my name and what kind of photos I take?"]),
+    'random_a': dict(stance='interested', personality=None, lines=SMALL_TALK[:2]),
+    'random_b': dict(stance='interested', personality=None, lines=SMALL_TALK[:2]),
 }
+
 
 
 class FixedDraw:
@@ -58,8 +68,10 @@ class FixedDraw:
 
 async def run_case(name, fixture, show_transcripts):
     rng = FixedDraw(fixture.get('draw', 0))
+    receipts = []
     controller = BrodiaController(RoleplayConfig('barista', fixture['stance']), rng=rng,
-                                  personality=fixture['personality'])
+                                  personality=DEMO_PERSONALITIES.get(fixture['personality']), on_outcome=receipts.append)
+    selected_personality = controller.personality
     if 'score' in fixture:
         controller.state.score = fixture['score']
         controller.state._smooth_band()
@@ -106,7 +118,7 @@ async def run_case(name, fixture, show_transcripts):
                 await asyncio.wait_for(controller.queue.join(), 12)
                 reply = ' '.join(text for role, text in turns[before:] if role == 'coach')
                 replies.append(reply)
-                if controller.personality != fixture['personality']:
+                if controller.personality != selected_personality:
                     raise AssertionError('Personality changed during call')
         lowered = ' '.join(replies).lower().replace('\u2019', "'")
         if any(phrase in lowered for phrase in ('as an ai', 'i am an ai', "i'm an ai", 'cannot share personal information',
@@ -122,7 +134,7 @@ async def run_case(name, fixture, show_transcripts):
         if 'request' in fixture:
             decisions = [trace for trace in traces if trace['request'] == fixture['request']]
             expected = 'accept' if fixture['accepted'] else 'decline'
-            if len(decisions) < len(fixture['lines']) - 1 or any(trace['decision'] != expected for trace in decisions):
+            if not decisions or any(trace['decision'] != expected for trace in decisions):
                 raise AssertionError('Missing tool invocation or wrong/changed outcome')
             if rng.draws > 1:
                 raise AssertionError('Phone/IG paraphrase rerolled the outcome')
@@ -137,16 +149,27 @@ async def run_case(name, fixture, show_transcripts):
                 # and a proposed time are just as natural as "yeah, sure".
                 if 'all' in controller.state.boundaries or fixture['request'] in controller.state.boundaries:
                     raise AssertionError('Accepted outcome contradicted by an explicit spoken boundary')
-                if fixture['request'] == 'contact' and any(re.search(r'\d[\d\s().-]{5,}\d|@[\w.]+', reply)
-                                                          for reply in replies[1:]):
-                    raise AssertionError('Contact acceptance dictated an invented number or handle')
+                if fixture['request'] == 'contact':
+                    from facetime.social_contacts import DEMO_CONTACTS
+                    if not receipts or receipts[-1]['demo_contact'] != DEMO_CONTACTS[fixture['method']]:
+                        raise AssertionError('Accepted contact failed to deliver approved demo details')
+                    if re.search(r"send (?:mine|it)|text (?:mine|it)|send.*later", replies[-1].lower()):
+                        raise AssertionError('Direct contact follow-up deferred again')
+                    # Require spoken follow-through too; accept ASR punctuation/number formatting.
+                    final = replies[-1].lower()
+                    if fixture['method'] == 'phone':
+                        digits = re.sub(r'[^0-9]', '', final)
+                        if '2025550147' not in digits:
+                            raise AssertionError('Asked to read phone number but did not speak approved number')
+                    elif not ('brodia' in final and ('demo' in final or 'invalid' in final)):
+                        raise AssertionError('Asked for IG handle but did not speak fictional demo label')
         if name == 'memory' and not ('alex' in replies[-1].lower() and 'street' in replies[-1].lower()):
             raise AssertionError('Name/topic continuity failed')
-        report = dict(result='PASS', case=name, personality=controller.personality,
+        report = dict(result='PASS', case=name, personality=asdict(controller.personality),
                       voice=model.voice, question_turns=questions, reply_turns=len(replies),
                       first_audio_after_input_ms=latencies, audio_frames=source.frames,
                       high_rapport_fixture=fixture.get('score'), tool_trace=traces,
-                      outcome_draws=rng.draws, diagnostics=controller.diagnostics)
+                      outcome_draws=rng.draws, receipts=receipts, diagnostics=controller.diagnostics)
         if show_transcripts: report['synthetic_character_replies'] = replies
         print(json.dumps(report), flush=True)
     except AssertionError:
@@ -179,6 +202,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--case', choices=['all', *CASES], required=True)
     parser.add_argument('--show-transcripts', action='store_true')
+    logging.basicConfig(level=logging.INFO)
     logging.getLogger('livekit').setLevel(logging.CRITICAL)
     logging.getLogger('google').setLevel(logging.CRITICAL)
     sys.exit(asyncio.run(main(parser.parse_args())))

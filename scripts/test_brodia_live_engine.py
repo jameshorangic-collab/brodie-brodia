@@ -116,7 +116,7 @@ class RapportTests(unittest.TestCase):
         outcome=state.decide('contact')
         self.assertTrue(outcome.accepted)
         self.assertEqual(state.decide('contact'),outcome)
-        self.assertIn('brodia@example.invalid',outcome.instruction()['direction'])
+        self.assertIn('brodia@example.invalid',outcome.instruction('email')['direction'])
         state.record_boundary('contact')
         self.assertFalse(state.decide('contact').accepted)
         self.assertEqual(rng.draws,1)

@@ -8,6 +8,7 @@ import math
 import random
 
 from facetime.brodia import RoleplayConfig
+from facetime.social_contacts import contact_instruction
 
 REQUESTS = ('contact', 'date', 'meet_again', 'continue')
 BANDS = ('very reserved', 'polite but cautious', 'comfortable', 'warm and engaged', 'very receptive')
@@ -78,8 +79,9 @@ class Outcome:
     accepted: bool
     probability: float
     reason: str
+    score: int | None = None  # original decision score; cached lookups do not recalculate
 
-    def instruction(self):
+    def instruction(self, contact_method="unspecified"):
         return {
             'request': self.request,
             'decision': 'accept' if self.accepted else 'decline',
@@ -87,10 +89,8 @@ class Outcome:
                          'On a later social request, call decide_social_outcome again even for a stored decision: '
                          'Python returns the cached outcome without rerolling. '
                          'Stay in character without AI or privacy disclaimers. '
-                         + ('Sound pleased and act out exchanging contacts (e.g. "Yeah, sure! Give me yours.") '
-                            'or agree naturally to the proposed plan. Never invent phone numbers or Instagram handles. '
-                            'Respond to the requested contact method; do not invent linked accounts or claim details were already exchanged. '
-                            'Only for an explicit fictional email request may you use brodia@example.invalid.'
+                         + ((contact_instruction(contact_method) if self.request == 'contact' else
+                             'Sound pleased and agree naturally to the proposed plan. ')
                             if self.accepted else
                             'Decline kindly and clearly. Do not flirt around the refusal, suggest trying again, or offer contact details.'),
         }
@@ -163,7 +163,7 @@ class RapportState:
         if not appropriate:
             p = 0.
         accepted = p > 0 and self.rng.random() < p
-        outcome = Outcome(request, accepted, p, 'simulation outcome')
+        outcome = Outcome(request, accepted, p, 'simulation outcome', score=self.score)
         self.outcomes[request] = outcome
         if not accepted:
             self.record_boundary(request)

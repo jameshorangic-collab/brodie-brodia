@@ -107,11 +107,14 @@ grounded feedback once. Positive rapport never cancels an explicit refusal.
 
 ## Conversation and personality
 
-At controller creation, one of Playful, Refined, Sassy, Bold/flirty, Shy or Bubbly
-is selected once, independently of receptivity and the outcome RNG. Its initiative,
-flirtiness, playfulness, warmth and speaking style remain stable across instruction
-refreshes. Rapport changes how receptive that personality is; a shy interested
-character is still shy, and an uninterested bold character still respects rejection.
+At controller creation, integer flirtiness/bitchiness/chaos levels are chosen
+once: one uniformly selected dominant axis is 3, and each other axis is 1 or 2.
+The frozen profile is independent of receptivity and outcome RNG. Optional
+`BRODIA_DEMO_PERSONALITY=flirty|bitchy|chaotic` fixes a demo profile; unset is random.
+Personality controls expression, not consent or scoring. Interested sarcasm is
+still interested, and an uninterested flirty character can be cheeky without
+promising unwanted contact. See the final conversation report for all profiles,
+contact completion, diagnostic mode, validation and restart commands.
 
 Interested characters frequently reciprocate curiosity, occasionally offer a topic
 and enjoy appropriate banter. Neutral characters are friendly with less initiative;
