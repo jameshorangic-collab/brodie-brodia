@@ -1,4 +1,4 @@
-# Brodie starter
+# Brodie RT Coach
 
 A real-time video coach in one Python process. Your phone joins a LiveKit room, the coach watches through the camera, counts reps, corrects form out loud, and talks between sets.
 
@@ -89,6 +89,10 @@ Only these three files:
 
 The same pages are at [seraphimlabs.dev/hackathon](https://seraphimlabs.dev/hackathon).
 
-## Licence
+## License
+
+The source code in this repository is available under the [MIT License](LICENSE).
+
+## Third-party and evaluation assets
 
 The models and the thresholds (`clf_pose.pt`, `trigger_lr.json`, `src/rtcoach/thresholds_e3c.json`, `src/rtcoach/cue_prior.json`) come from a research evaluation licence. Use them for this hackathon only and do not redistribute them.
