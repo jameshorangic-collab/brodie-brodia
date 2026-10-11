@@ -160,6 +160,7 @@ Offline checks:
 .venv/bin/python scripts/test_brodia_server.py
 .venv/bin/python scripts/test_brodia_next_call.py
 .venv/bin/python scripts/test_brodia_park_neutral.py
+.venv/bin/python scripts/test_brodia_p15_failure_modes.py   # P15 failure/privacy matrix: docs/P15_QA_MATRIX.md
 .venv/bin/python scripts/test_voice.py
 .venv/bin/python scripts/test_vision_notes.py
 node scripts/test_brodia_browser.cjs
