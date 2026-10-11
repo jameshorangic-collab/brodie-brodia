@@ -55,3 +55,21 @@ path are verifiable without credentials. A completed bidirectional LiveKit call,
 interruption behavior, and sponsor eligibility remain unverified until the team
 uses its assigned LiveKit project and test credentials. Do not treat worker
 registration alone as proof of a completed call.
+
+## Practice selector page (P05)
+
+`web/index.html` is a static page (no build step, no external assets) with the
+3 scenarios x 3 receptivity levels and a Start Practice button. Open it locally:
+
+```sh
+python3 -m http.server 8000 --bind 127.0.0.1   # from the repo root
+# then open http://localhost:8000/web/  (or ?scenario=park&receptivity=neutral to preselect)
+```
+
+To try it on a phone on the same Wi-Fi, bind to `0.0.0.0` instead and open
+`http://<laptop-ip>:8000/web/`. Start builds the contract JSON
+`{"scenario":"barista|street|park","receptivity":"interested|neutral|uninterested"}`,
+validates it and shows it. It is **not connected to a call yet**: `startPractice()`
+in the page is the single hook for P06/P07 and currently reports "Not connected yet".
+Nothing is stored. Check it with `python3 scripts/test_selector.py` (uses `node`
+for the validation cases if installed). Screenshots: `docs/screenshots/p05-selector-*.png`.
