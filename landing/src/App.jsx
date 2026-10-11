@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
+import { AVATARS, GRADES, MODES, SAMPLE_MOVES, SCENES } from './data.js';
 import Waitlist from './Waitlist.jsx';
 
 const Cam = (p) => (
@@ -34,6 +34,20 @@ function Chips({ label, options, value, onChange }) {
   );
 }
 
+/* The faceless figurine with eyes, brows and mouth drawn on top, like the app's avatar. */
+function Avatar({ id }) {
+  const a = AVATARS[id];
+  const at = ([x, y]) => ({ left: `${(x / 612) * 100}%`, top: `${(y / 408) * 100}%` });
+  return (
+    <div className="avatar" key={id}>
+      <img src={`/avatars/${id}.png`} alt="" width="612" height="408" />
+      {a.brows.map((p, i) => <i key={`b${i}`} className="brow" style={at(p)} />)}
+      {a.eyes.map((p, i) => <i key={`e${i}`} className="eye" style={at(p)} />)}
+      <i className="mouth" style={at(a.mouth)} />
+    </div>
+  );
+}
+
 function Phone({ scene, mode }) {
   const s = SCENES[scene], m = MODES[mode];
   const timer = useCallTimer(scene + mode);
@@ -41,7 +55,7 @@ function Phone({ scene, mode }) {
     <div className="phone" aria-hidden="true">
       <div className="screen">
         <div className="scene" data-s={scene} />
-        <div className="person" />
+        <Avatar id={s.avatar} />
         <div className="top">
           <div className="who">{s.name}</div>
           <div className="where"><i className="dot" /><span>{s.label}</span><span>·</span><span className="t">{timer}</span></div>
