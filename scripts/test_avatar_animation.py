@@ -27,6 +27,26 @@ class Source:
 
 
 class AnimationTest(unittest.TestCase):
+    def test_supplied_illustration_animates_without_changing_source(self):
+        import hashlib
+        from facetime.illustrated_avatar import IllustratedAvatar
+        path = 'assets/avatar/brodia-girl.png'
+        with open(path, 'rb') as f: before = hashlib.sha256(f.read()).digest()
+        for size in ((960, 540), (540, 960)):
+            av = IllustratedAvatar(path, size=size)
+            options = dict(now=av.t0, motion=False, expression='smiling')
+            rest = av.frame(audio_level=0, blink=False, **options)
+            spoken = av.frame(audio_level=.18, blink=False, **options)
+            blink = av.frame(audio_level=0, blink=True, **options)
+            self.assertEqual(rest.shape, (size[1], size[0], 3))
+            self.assertFalse(np.array_equal(rest, spoken))
+            self.assertFalse(np.array_equal(rest, blink))
+            body_y = round(av.feat['mouth'][1] + av.feat['mouth'][3]*2 + 4)
+            np.testing.assert_array_equal(rest[body_y:], spoken[body_y:])
+            av.frame(audio_level=0, **options)
+            self.assertEqual(av.last_mouth_shape, 'rest')
+        with open(path, 'rb') as f: self.assertEqual(before, hashlib.sha256(f.read()).digest())
+
     def player(self): return CuePlayer(bank=CueBank.disabled(), source=Source())
 
     def test_rms_tracks_playout_then_stops(self):

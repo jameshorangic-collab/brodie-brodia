@@ -63,7 +63,7 @@ async def run(args):
         await publisher.local_participant.publish_track(player.track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE))
         pump = asyncio.create_task(player.run())
         job = SimpleNamespace(room=publisher, player=player, closed=False, voice=None,
-                              a=SimpleNamespace(brodia_scenario=args.scenario, brodia_receptivity='neutral', avatar_expression='auto'))
+                              a=SimpleNamespace(brodia_scenario=args.scenario, brodia_receptivity='neutral', avatar_expression='auto', avatar_image=args.avatar_image))
         avatar_task = asyncio.create_task(run_for_job(job, fps=args.fps, shape=args.shape))
 
         async def observe_mouth():
@@ -121,6 +121,7 @@ def main():
     ap.add_argument('--scenario', choices=['park', 'barista', 'street'], default='park')
     ap.add_argument('--shape', choices=['portrait', 'landscape'], default='portrait')
     ap.add_argument('--fps', type=float, choices=[10, 15], default=15)
+    ap.add_argument('--avatar-image', default=None)
     args = ap.parse_args(); asyncio.run(run(args)); gc.collect()  # release cyclic room callbacks before SDK atexit
 
 

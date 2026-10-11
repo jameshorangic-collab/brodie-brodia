@@ -140,6 +140,7 @@ def build_parser():
     ap.add_argument('--avatar', action='store_true', default=truthy(os.environ.get('BRODIA_AVATAR')), help='facetime/brodia_avatar.py: publish the character video "brodia-avatar" '
                     '(partner for the scenario, Coach Brodie for the feedback); with --mirror the pose mirror becomes a corner inset of it (env BRODIA_AVATAR=1)')
     ap.add_argument('--avatar-fps', type=float, default=float(os.environ.get('BRODIA_AVATAR_FPS', '15') or 15), help='avatar frames per second (default 15, clamped to 10–15; env BRODIA_AVATAR_FPS)')
+    ap.add_argument('--avatar-image', default=os.environ.get('BRODIA_AVATAR_IMAGE'), help='supplied Brodia illustration PNG (1194x1317); existing scenario avatars remain the default')
     ap.add_argument('--avatar-expression', choices=['auto', 'neutral', 'smiling', 'playful', 'thinking'], default=os.environ.get('BRODIA_AVATAR_EXPRESSION', 'auto'),
                     help='avatar expression; auto follows Gemini thinking state and existing rapport (playful = flirty)')
     ap.add_argument('--brodia-scenario', default=os.environ.get('BRODIA_SCENARIO'), choices=['barista', 'street', 'park'], help='P03 fictional adult roleplay setting; pair with --brodia-receptivity')

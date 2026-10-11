@@ -17,7 +17,7 @@ HTML = b'''<!doctype html><html><head><meta charset="utf-8"><title>Brodia animat
 <style>body{background:#15252c;color:#fff;font:16px system-ui;text-align:center;margin:20px}
 select{font:inherit;margin:8px;padding:6px}img{display:block;margin:12px auto;max-height:76vh;max-width:95vw;border-radius:16px}
 p{color:#cad5d8}</style></head><body><h2>Brodia live animation preview</h2>
-<label>Partner <select id="scenario"><option value="park">Maya</option><option value="barista">Jess</option><option value="street">Nadia</option></select></label>
+<label>Partner <select id="scenario"><option value="brodia">Brodia illustration</option><option value="park">Maya</option><option value="barista">Jess</option><option value="street">Nadia</option></select></label>
 <label>Voice <select id="voice"><option value="listening">Listening (mouth closed)</option><option value="demo">Amplitude demo with pauses</option><option value="fallback">Speaking-state fallback</option></select></label>
 <label>Expression <select id="expression"><option>neutral</option><option>smiling</option><option value="playful">playful / flirty</option><option>thinking</option></select></label>
 <label>Shape <select id="shape"><option>portrait</option><option>landscape</option></select></label>
@@ -48,9 +48,15 @@ class PreviewHandler(BaseHTTPRequestHandler):
         value = lambda key, default: q.get(key, [default])[0]
         scenario = value('scenario', 'park'); expression = value('expression', 'neutral')
         voice = value('voice', 'listening'); shape = value('shape', 'portrait')
-        if scenario not in ('park', 'barista', 'street') or expression not in EXPRESSIONS or shape not in SIZES or voice not in ('listening', 'demo', 'fallback'):
+        if scenario not in ('brodia', 'park', 'barista', 'street') or expression not in EXPRESSIONS or shape not in SIZES or voice not in ('listening', 'demo', 'fallback'):
             self.send_error(400); return
-        av = CharacterAvatar(scenario, size=SIZES[shape])
+        if scenario == 'brodia':
+            from facetime.illustrated_avatar import IllustratedAvatar
+            from facetime.brodia_avatar import PARTS
+            import os
+            av = IllustratedAvatar(os.path.join(PARTS, 'brodia-girl.png'), size=SIZES[shape])
+        else:
+            av = CharacterAvatar(scenario, size=SIZES[shape])
         self.send_response(200); self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
         self.send_header('Cache-Control', 'no-store'); self.end_headers()
         self.connection.settimeout(2.0)

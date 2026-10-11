@@ -392,7 +392,13 @@ async def run_for_job(job, fps=15.0, shape='portrait', mirror=False, mirror_fps=
     scenario = getattr(a, 'brodia_scenario', None) or 'park'; receptivity = getattr(a, 'brodia_receptivity', None) or 'neutral'
     source = None; mir = None; job.avatar_track = None; job.avatar = None
     try:
-        av = await asyncio.to_thread(CharacterAvatar, scenario, receptivity, size); job.avatar = av
+        image_path = getattr(a, 'avatar_image', None)
+        if image_path:
+            from facetime.illustrated_avatar import IllustratedAvatar
+            av = await asyncio.to_thread(IllustratedAvatar, image_path, scenario, receptivity, size)
+        else:
+            av = await asyncio.to_thread(CharacterAvatar, scenario, receptivity, size)
+        job.avatar = av
         source = rtc.VideoSource(W, H)
         track = rtc.LocalVideoTrack.create_video_track(TRACK_NAME, source)
         source.capture_frame(bm.to_video_frame(av.frame()))

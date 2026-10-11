@@ -63,4 +63,18 @@ gitignored `data/tmp/avatar-livekit/`; expression samples go to `data/tmp/avatar
 
 Verified on 2026-10-11: 10 new offline tests and 47 inherited checks pass. Real Gemini Live + LiveKit delivered 173 video frames
 at 14.9 FPS and 336 audible audio frames. All three amplitude mouth shapes and a closed mouth after speech were observed;
-the character blinked twice and rendering averaged 1.69 ms. A real iPhone/FaceTime call still needs link creation and guest admission.
+the character blinked twice and rendering averaged 1.69 ms.
+
+## Supplied Brodia illustration
+
+`--avatar-image assets/avatar/brodia-girl.png` selects the user's supplied
+1194×1317 illustration. Its original PNG is preserved. OpenCV removes baked
+facial marks in memory once at startup; the existing renderer draws blinks,
+expressions and the outgoing PCM mouth envelope. Upper-body framing keeps the
+face readable on Chert's 640×360 canvas. Local preview includes this illustration.
+Eleven animation tests pass, including source preservation. Gemini + the supplied
+PNG delivered 174 decoded video frames at 15 FPS, 263 audible audio frames, two
+blinks, all three amplitude mouth shapes, and immediate mouth closure after speech.
+Rendering averaged 0.93 ms. During the admitted FaceTime test, a separate audio
+subscriber measured audible `facetime-caller` input and Gemini `coach-audio` output.
+The iPhone display and speaker result requires the caller's confirmation.
