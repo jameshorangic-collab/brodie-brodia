@@ -44,7 +44,7 @@ def default_cues_dir():
     """env CUE_AUDIO_DIR (when it exists and covers at least one string; a missing or empty directory is reported and the
     ranked banks are used instead, so a wrong mount never makes the coach mute), else the bank that covers the most of the
     current vocabulary: Puck first (the plain Puck bank is the default voice), then the
-    Australian Puck bank, then the OpenAI bank. The vocabulary grows with cues.json, so a bank is never required to be
+    Australian Puck bank, then the legacy local bank. The vocabulary grows with cues.json, so a bank is never required to be
     complete; missing strings are reported at load."""
     d = os.environ.get('CUE_AUDIO_DIR')
     if d:
@@ -58,7 +58,7 @@ def default_cues_dir():
         cov = [(bank_coverage(x), x) for x in banks if os.path.isdir(x)]
         (c, n), best = max(cov, key=lambda t: (t[0][0], -banks.index(t[1])))
         for (ci, ni), x in cov:
-            if ci < ni: log.warning('cue bank %s covers %d/%d strings; run facetime.cues_tts --backend %s', x, ci, ni, 'gemini' if x == CUES_DIR_GEMINI else 'openai')
+            if ci < ni: log.warning('cue bank %s covers %d/%d strings; run facetime.cues_tts with GEMINI_API_KEY set', x, ci, ni)
         return best
     except Exception as e:
         log.warning('bank check failed: %s', e)
