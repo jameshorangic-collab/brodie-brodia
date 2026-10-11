@@ -30,7 +30,7 @@ node scripts/test_brodia_browser.cjs
 | A-03 | Zero/short transcript feedback is honest | PASS | `test_zero_transcript_feedback_is_honest`; `test_brodia_feedback.py` (goodbye alone is evidence). |
 | A-04 | Graceful exit/disconnect cleanup (connect failure, room deleted, caller leaves; idempotent `aclose`) | PASS | `test_brodia_live_engine.py::test_brodia_shutdown_without_research_assets`, `test_worker_shutdown.py` (21/21 with model bundle), `test_vision_notes.py` caller-leave. Controller `aclose` clears history/queue/dedupe ids (`test_context_validation_failure_and_cleanup`, A-01). |
 | A-05 | Browser "End call" disconnects and clears media | PASS (mocked DOM/LiveKit) | `node scripts/test_brodia_browser.cjs` |
-| A-06 | Invalid scenario/receptivity, missing fields, bad JSON, empty body, bad Content-Length, NUL/array values are rejected, with no stack trace and no dispatch | PASS | `SelectorServerHardening.test_malformed_inputs_rejected_without_stack_traces` drives the real HTTP handler on an ephemeral port. Non-object JSON (`[]`, `null`, `"x"`) returns **502 instead of 400** (finding S-02). There is still no traceback and no dispatch. |
+| A-06 | Invalid scenario/receptivity, missing fields, bad JSON, empty body, bad Content-Length, NUL/array values are rejected, with no stack trace and no dispatch | PASS | `SelectorServerHardening.test_malformed_inputs_rejected_without_stack_traces` drives the real HTTP handler on an ephemeral port. Non-object JSON (`[]`, `null`, `"x"`) returns 400 since the S-02 fix in PR #17. No traceback and no dispatch. |
 | A-07 | Unknown routes 404; path traversal to `.env.local`, source, `.git/config` gets 404 | PASS | `test_unknown_routes_and_traversal` (raw request line, no client normalisation). Static serving is confined to `web/`. |
 | A-08 | Token hygiene: TTL 600 s, room-scoped `roomJoin` only (no admin/create/list/record), secret not in token or response | PASS | `TokenAndBinding.test_token_is_short_lived_and_room_scoped` (verified with `livekit.api.TokenVerifier`, fixture key), `test_valid_session_returns_only_room_url_token` (response keys exactly room/url/token/scenario/receptivity). |
 | A-09 | Secrets never in the browser page; no CORS headers on page or API | PASS | `test_secrets_never_reach_browser_page`; `Access-Control-Allow-Origin` absent. |
@@ -55,14 +55,14 @@ Setup: two terminals from the repo root.
 | ID | Case | Result | Steps | Expected |
 | --- | --- | --- | --- | --- |
 | M-01 | Mic denied | PENDING-MANUAL | Block the microphone for 127.0.0.1 in site settings, pick any scenario, then Start. | Status shows an error and the call ends cleanly, with no hung "Creating…" state. The worker log shows the job ends within about 30 s of LiveKit closing the empty room. Start works again after allowing the mic. |
-| M-02 | Camera denied (voice-only must still work) | **Expected FAIL until W-1 is fixed** | Allow the mic and block the camera, then Start. | Should connect voice-only, with feedback saying visual cues were not evaluated. Code review: `enableCameraAndMicrophone()` requests both in one getUserMedia call, so a camera denial or missing camera aborts the **whole call** (web/index.html:15). See W-1. |
-| M-03 | No camera device / camera in use by another app | Expected FAIL until W-1 | Same as M-02, with the camera unplugged or in use in another app. | Same as M-02. |
+| M-02 | Camera denied (voice-only must still work) | PENDING-MANUAL (W-1 fixed in PR #17; mocked browser test passes) | Allow the mic and block the camera, then Start. | Should connect voice-only, with feedback saying visual cues were not evaluated. Code review: `enableCameraAndMicrophone()` requests both in one getUserMedia call, so a camera denial or missing camera aborts the **whole call** (web/index.html:15). See W-1. |
+| M-03 | No camera device / camera in use by another app | PENDING-MANUAL (W-1 fixed in PR #17) | Same as M-02, with the camera unplugged or in use in another app. | Same as M-02. |
 | M-04 | Close tab mid-call | PENDING-MANUAL | Start a call, talk for about 10 s, then close the tab. | The worker prints `caller left and nobody rebound within 2 s: leaving`, then `job … done`, with no traceback and no further Gemini usage. livekit-client disconnects on page leave by default. |
 | M-05 | Second call, different scenario | PENDING-MANUAL | Run Barista + Uninterested, say "end practice", hear feedback, click End call. Without reloading, pick Park + Interested and Start. | A new room name appears in the worker log, and the character is a park-goer who starts warm. There is no barista reference and no carried-over refusal. Feedback quotes only call-2 words. |
 | M-06 | Network drop | PENDING-MANUAL | Mid-call, disable Wi-Fi for about 5 s and then re-enable it, using DevTools offline. Also try about 30 s. | Short drop: LiveKit reconnects and audio resumes. Long drop: the page shows "Call ended." and the worker leaves (leave grace / room disconnected), and a new Start works. |
 | M-07 | Hangup via End call before speaking | PENDING-MANUAL | Start, then click End call immediately. | The worker job ends and no feedback is spoken to an empty room. |
 | M-08 | Low frame rate / poor video | PENDING-MANUAL | Start with `--vision --vision-notes`, cover the camera, then throttle the network in DevTools. | No invented visual claims. Feedback is voice-only or mentions only a verified note. |
-| M-09 | User knows video is used | **FAIL (copy missing)** | Read the selector page. | The page should say that the camera and mic are sent to the AI partner for this call and are not recorded. Currently it says nothing (W-2). |
+| M-09 | User knows video is used | PASS (notice added in PR #17; W-2) | Read the selector page. | The page should say that the camera and mic are sent to the AI partner for this call and are not recorded. Currently it says nothing (W-2). |
 | M-10 | Uninterested character departs; interrupted speech | PENDING-MANUAL | Barista + Uninterested: keep pressing after a refusal, and talk over the character. | The character politely ends and does not reroll. Barge-in stops audio without a stall. |
 
 ## Findings
@@ -75,7 +75,13 @@ Severity: H = can break the demo; M = privacy/robustness; L = hardening.
 - **F-2 (L)** `.gitignore`: added `*.webm *.mov *.m4a *.ogg *.mkv *.vtt *.srt` so browser or screen call recordings and caption transcripts cannot be committed by accident.
 - **Tests**: `scripts/test_brodia_p15_failure_modes.py` (13 tests). It is listed in `docs/BRODIA_LIVE_ENGINE.md`.
 
-### Open: excluded files (owned by the P13 "next call" work; not edited here)
+### Fixed in PR #17 (P13 branch); original findings kept for the record
+
+All items below were fixed in `web/index.html`, `facetime/brodia_server.py` and `facetime/worker.py` by PR #17 and are
+covered by `scripts/test_brodia_server.py`, `scripts/test_brodia_next_call.py`, `scripts/test_brodia_live_engine.py` and
+`node scripts/test_brodia_browser.cjs`. K-01 was fixed differently from the suggestion below: a `brodia` agent job with no
+valid selection falls back to worker flags, then the Park + Neutral default, never the fitness coach; invalid metadata is
+logged and ignored. Camera-denied behaviour (M-02/M-03) still needs a real-browser check.
 
 - **W-1 (H) web/index.html:15**: `await room.localParticipant.enableCameraAndMicrophone()` fails the whole call on camera denial or missing camera. Fix:
   `await room.localParticipant.setMicrophoneEnabled(true); try { await room.localParticipant.setCameraEnabled(true) } catch { status.textContent = 'Camera unavailable: voice-only practice (visual cues won\'t be evaluated).' }`.

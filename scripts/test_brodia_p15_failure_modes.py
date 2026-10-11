@@ -171,7 +171,7 @@ class SelectorServerHardening(unittest.TestCase):
         for raw in cases:
             with self.subTest(raw=raw):
                 status, headers, body = self.request('POST', '/api/session', raw, {'Content-Type': 'application/json'})
-                self.assertIn(status, (400, 502))  # non-object JSON currently 502 (see docs/P15_QA_MATRIX.md S-02)
+                self.assertEqual(status, 400)  # non-object JSON is 400 since the S-02 fix (PR #17)
                 self.assert_clean(body)
         self.assertEqual(len(self.fake.requests), before, 'a malformed request dispatched an agent')
         status, _, body = self.request('POST', '/api/session', b'{}', {'Content-Type': 'application/json', 'Content-Length': 'abc'})
