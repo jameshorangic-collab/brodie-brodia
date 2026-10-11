@@ -1,7 +1,16 @@
-<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Brodia Practice</title>
-<style>body{font:18px system-ui;max-width:600px;margin:3rem auto;padding:1rem}fieldset{margin:1rem 0}button{padding:.7rem 1rem;font-size:1rem}#status{white-space:pre-wrap}</style>
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Brodia Practice</title>
+<style>body{font:18px system-ui;max-width:600px;margin:3rem auto;padding:1rem}fieldset{margin:1rem 0}button{padding:.7rem 1rem;font-size:1rem}#status{white-space:pre-wrap}video{max-width:100%;margin-top:1rem;border-radius:.5rem}</style>
 <h1>Brodia practice</h1><p>Choose a fictional adult scenario. “Uninterested” means practice a respectful exit.</p>
 <fieldset><legend>Scenario</legend><label><input name=s value=barista type=radio> Barista</label><label><input name=s value=street type=radio> Street</label><label><input name=s value=park type=radio> Park</label></fieldset>
 <fieldset><legend>Receptivity</legend><label><input name=r value=interested type=radio> Interested</label><label><input name=r value=neutral type=radio> Neutral</label><label><input name=r value=uninterested type=radio> Uninterested</label></fieldset>
-<button disabled id=start>Start practice</button><p id=status></p>
-<script>const pick=n=>document.querySelector(`input[name=${n}]:checked`)?.value;const b=start;document.onchange=()=>b.disabled=!(pick('s')&&pick('r'));b.onclick=async()=>{b.disabled=true;status.textContent='Starting secure practice room…';try{let r=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario:pick('s'),receptivity:pick('r')})});if(!r.ok)throw Error('Could not start');let x=await r.json();status.textContent=`Room ready: ${x.room}\nOpen the tokenized phone link from your trusted local test flow.`;console.log('LiveKit session',x)}catch(e){status.textContent=e.message;b.disabled=false}};</script>
+<button disabled id=start>Start practice</button> <button hidden id=leave>End call</button><p id=status></p><div id=media></div>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+<script>
+const pick=n=>document.querySelector(`input[name=${n}]:checked`)?.value,start=document.querySelector('#start'),leave=document.querySelector('#leave'),status=document.querySelector('#status'),media=document.querySelector('#media');let room;
+document.onchange=()=>start.disabled=!(pick('s')&&pick('r'));
+function add(track){media.append(track.attach())}
+async function end(){const active=room;room=undefined;if(active)await active.disconnect();media.replaceChildren();leave.hidden=true;start.disabled=!(pick('s')&&pick('r'));status.textContent='Call ended.'}
+leave.onclick=end;
+start.onclick=async()=>{start.disabled=true;status.textContent='Creating your private practice room…';try{let r=await fetch('/api/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scenario:pick('s'),receptivity:pick('r')})});if(!r.ok)throw Error('Could not start practice');let x=await r.json();room=new LivekitClient.Room();room.on(LivekitClient.RoomEvent.TrackSubscribed,(track)=>add(track));room.on(LivekitClient.RoomEvent.Disconnected,()=>end());await room.connect(x.url,x.token);await room.localParticipant.enableCameraAndMicrophone();for(const pub of room.localParticipant.trackPublications.values())if(pub.track)add(pub.track);leave.hidden=false;status.textContent=`Connected to ${x.scenario} + ${x.receptivity}. You can end the call any time.`}catch(e){status.textContent=e.message;start.disabled=false}};
+</script>
