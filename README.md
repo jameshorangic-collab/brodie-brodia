@@ -110,6 +110,15 @@ and camera. Say "end practice" or "goodbye" to get feedback. Use a fresh room fo
 for you). To send video to Gemini as well, add `--vision --vision-fps 1` to the worker command.
 Optional: add `--mirror` to the worker command to make the partner publish a video track showing your own camera with your
 live pose skeleton (a pose preview; frames are not stored). See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#pose-mirror-optional-agent-video).
+Optional: add `--avatar` (env `BRODIA_AVATAR=1`) to publish the partner's character video instead: Jess (barista),
+Maya (park) or Nadia (street), blinking and talking in sync with the agent's audio, then Coach Brodie for the feedback.
+With `--avatar --mirror` your pose mirror becomes a small inset in that one video track. Recommended demo command:
+
+```bash
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --mirror --vision-notes
+```
+
+See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#character-video---avatar).
 
 ### Real FaceTime via Chert's open-source connector
 

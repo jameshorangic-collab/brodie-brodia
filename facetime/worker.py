@@ -51,6 +51,10 @@ is then appended to the persona as free text (a recipe, a checklist), not parsed
 --mirror (BRODIA_MIRROR=1; P17-A, facetime/brodia_mirror.py): the job also publishes a video track "brodia-mirror": the caller's own
 newest frame with their pose skeleton (MediaPipe lite in a thread, --mirror-fps, default 10), a scenario label and a "pose preview"
 tag; a placeholder until caller video arrives. Works with --perception off; nothing is stored.
+--avatar (BRODIA_AVATAR=1; facetime/brodia_avatar.py): the job publishes ONE video track "brodia-avatar": the practice partner for the
+scenario (Jess barista, Maya park, Nadia street; blinking, mouth moving while the agent's audio plays), switching to Coach Brodie when
+the roleplay ends and the feedback starts. With --mirror as well, the caller's pose mirror is a small corner inset in that same track
+(no separate "brodia-mirror" track). --avatar-fps (default 15); the shape follows --mirror-shape.
 Run:
   .venv/bin/python -m facetime.worker --help
   .venv/bin/python -m facetime.worker [--plan "squats:10,pushups:8"] [--events-only] [--publish-data] dev     # LIVEKIT_URL/API_KEY/API_SECRET in env
@@ -133,6 +137,9 @@ def build_parser():
                                                                                                     'showing the caller\'s own camera with their pose skeleton (placeholder until video arrives; frames not stored; env BRODIA_MIRROR=1)')
     ap.add_argument('--mirror-fps', type=float, default=float(os.environ.get('BRODIA_MIRROR_FPS', '10') or 10), help='mirror frames (and pose runs) per second (default 10; env BRODIA_MIRROR_FPS)')
     ap.add_argument('--mirror-shape', default=os.environ.get('BRODIA_MIRROR_SHAPE', 'portrait'), choices=['portrait', 'landscape'], help='mirror track shape: portrait 540x960 (FaceTime, default) or landscape 960x540 (env BRODIA_MIRROR_SHAPE)')
+    ap.add_argument('--avatar', action='store_true', default=truthy(os.environ.get('BRODIA_AVATAR')), help='facetime/brodia_avatar.py: publish the character video "brodia-avatar" '
+                    '(partner for the scenario, Coach Brodie for the feedback); with --mirror the pose mirror becomes a corner inset of it (env BRODIA_AVATAR=1)')
+    ap.add_argument('--avatar-fps', type=float, default=float(os.environ.get('BRODIA_AVATAR_FPS', '15') or 15), help='avatar frames per second (default 15; env BRODIA_AVATAR_FPS)')
     ap.add_argument('--brodia-scenario', default=os.environ.get('BRODIA_SCENARIO'), choices=['barista', 'street', 'park'], help='P03 fictional adult roleplay setting; pair with --brodia-receptivity')
     ap.add_argument('--brodia-receptivity', default=os.environ.get('BRODIA_RECEPTIVITY'), choices=['interested', 'neutral', 'uninterested'], help='P03 roleplay stance; pair with --brodia-scenario')
     ap.add_argument('-h', '--help', action='store_true', help='show this help and exit')
@@ -365,6 +372,7 @@ class CoachJob:
         self.t0 = time.monotonic(); self.ev_seq = 0; self.vision = None; self.vision_logged = False; self.session_opened = False; self.open_task = None
         self.vision_observer = None                               # --vision-notes: facetime/vision_notes.Observer (notes, summary()) once the task starts
         self.mirror_task = None; self.mirror = None; self.mirror_track = None   # --mirror: facetime/brodia_mirror.py (the agent's video track)
+        self.avatar_task = None; self.avatar = None; self.avatar_track = None   # --avatar: facetime/brodia_avatar.py (replaces the mirror track; mirror as inset)
 
     # ---- lifecycle ----
     async def run(self):
@@ -418,7 +426,12 @@ class CoachJob:
             self.consumer_tasks.append(asyncio.create_task(run_for_job(self, fps=a.vision_notes_fps), name='consumer-vision-notes'))
         if self.voice is not None:
             self.consumer_tasks.append(asyncio.create_task(self.voice.run(), name='consumer-voice'))
-        if getattr(a, 'mirror', False):                                         # P17-A: the agent's video (pose mirror); reads self.latest only
+        if getattr(a, 'avatar', False):                                         # the agent's video: the character (+ the pose mirror inset with --mirror)
+            from facetime.brodia_avatar import run_for_job as run_avatar
+            self.avatar_task = asyncio.create_task(run_avatar(self, fps=a.avatar_fps, shape=getattr(a, 'mirror_shape', 'portrait'), mirror=bool(getattr(a, 'mirror', False)),
+                                                              mirror_fps=a.mirror_fps), name='consumer-avatar')
+            self.consumer_tasks.append(self.avatar_task)
+        elif getattr(a, 'mirror', False):                                       # P17-A: the agent's video (pose mirror); reads self.latest only
             from facetime.brodia_mirror import run_for_job as run_mirror
             self.mirror_task = asyncio.create_task(run_mirror(self, fps=a.mirror_fps, shape=getattr(a, 'mirror_shape', 'portrait')), name='consumer-mirror')
             self.consumer_tasks.append(self.mirror_task)
@@ -461,8 +474,9 @@ class CoachJob:
         if self.leave_task is not None: self.leave_task.cancel()
         if self.open_task is not None and not self.open_task.done(): self.open_task.cancel()
         for t in getattr(self, 'consumer_tasks', []): t.cancel()
-        if self.mirror_task is not None:                                                 # let the mirror close its VideoSource (bounded)
-            await asyncio.wait({self.mirror_task}, timeout=1.0)
+        video_tasks = {t for t in (self.mirror_task, self.avatar_task) if t is not None}
+        if video_tasks:                                                                  # let the mirror/avatar close its VideoSource (bounded)
+            await asyncio.wait(video_tasks, timeout=1.0)
         if self.video_task is not None and not self.video_task.done():                 # closes the VideoStream (read_video's finally)
             self.video_task.cancel()
             try: await asyncio.wait_for(asyncio.gather(self.video_task, return_exceptions=True), 1.0)

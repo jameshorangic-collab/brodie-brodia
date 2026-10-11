@@ -153,6 +153,46 @@ Offline check: `.venv/bin/python scripts/test_brodia_mirror.py [--video clip.mp4
 (real-pose check skipped when no video or model is present). Live browser rendering and
 whether the FaceTime connector shows the agent's video to the iPhone are not yet tested.
 
+## Character video (`--avatar`)
+
+`--avatar` (or `BRODIA_AVATAR=1`) publishes ONE video track, `brodia-avatar` (camera source),
+rendered by `facetime/brodia_avatar.py`:
+
+- **Roleplay:** the partner for the job's scenario from `assets/avatar/brodia-avatars.json`
+  (barista = Jess, park = Maya, street = Nadia) on a calm scenario-tinted gradient. The app draws
+  her eyes (blink every 2.8–5.5 s), brows and mouth (one dark rounded shape). The mouth cycles
+  open shapes while the agent's audio is actually going out (`CuePlayer.speaking()`: a pushed
+  frame with real energy within 150 ms, covering the Gemini voice mixed into the cue track) and
+  rests in a smile otherwise. Receptivity tweaks the resting face: interested a little warmer,
+  uninterested flatter. Jess's glasses are baked into her render; no glasses overlay is ever drawn.
+  A small "Jess · Barista" label sits top-left.
+- **Feedback:** when the roleplay ends (`FeedbackSession.finished`, the moment the grounded feedback
+  is requested) the track switches to Coach Brodie (`brodie-coach.png`, default pose) with a gentle
+  idle bob, a livelier bob and small scale pulse while speaking, and a "Coach Brodie" label. The
+  coach images are only scaled and positioned, never drawn on. The hype/think poses are loaded and
+  selectable (`avatar.coach_pose`), but the worker holds the default pose: the feedback is one
+  model response whose transcript only arrives after the audio, so which section (strength vs
+  improvement) is being spoken is not known cheaply.
+- **With `--mirror`:** the caller's pose mirror (pose lite on the newest caller frame, at most
+  `--mirror-fps`) is a rounded inset at the bottom right (~28 % of the width) of the same track;
+  no `brodia-mirror` track is published. No inset until caller video arrives or while it is
+  stalled. `--mirror` alone is unchanged.
+
+Flags: `--avatar-fps` (default 15, env `BRODIA_AVATAR_FPS`); the shape follows `--mirror-shape`
+(portrait 540x960 default, landscape 960x540). One loop per job; rendering and I420 conversion run
+in a worker thread, never on the audio path. Measured offline: partner frame ~0.2 ms, coach ~3.5 ms,
+partner + inset + I420 ~1 ms (plus pose lite ~12 ms per caller frame with `--mirror`).
+
+Recommended demo command:
+
+```bash
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --mirror --vision-notes
+```
+
+Offline: `.venv/bin/python scripts/test_brodia_avatar.py` (sample renders go to
+`$BRODIA_AVATAR_OUT`, default `data/tmp/avatars`); `.venv/bin/python -m facetime.brodia_avatar [dir]`
+writes a sheet. Live browser/FaceTime rendering of this track is not yet tested.
+
 ## Restart and test
 
 Stop the existing worker/selector in their terminals with Ctrl-C. Do not launch
@@ -198,6 +238,7 @@ Offline checks:
 .venv/bin/python scripts/test_voice.py
 .venv/bin/python scripts/test_vision_notes.py
 .venv/bin/python scripts/test_brodia_mirror.py
+.venv/bin/python scripts/test_brodia_avatar.py              # character video (--avatar)
 .venv/bin/python scripts/test_brodia_pose_notes.py         # P17-B pose channels + feedback citations
 node scripts/test_brodia_browser.cjs
 ```
