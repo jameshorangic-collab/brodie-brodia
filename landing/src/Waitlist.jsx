@@ -40,7 +40,7 @@ export default function Waitlist({ pick }) {
       <h2>Get in line.</h2>
       <p className="sub">Early access drops soon. Don’t fumble it.</p>
       {state === 'done' ? (
-        <p className="done" role="status"><span className="g brill" aria-hidden="true">!!</span>You’re in. +50 aura.</p>
+        <p className="done" role="status"><img src="/avatars/brodie-coach-hype.png" alt="" width="1024" height="1024" />You’re in. +50 aura.</p>
       ) : (
         <form className="join" onSubmit={submit}>
           <label className="sr" htmlFor="wl-email">Email</label>
