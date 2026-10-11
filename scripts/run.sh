@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Load .env.local and run the coach or mint a phone link.
-#   bash scripts/run.sh coach [gemini|openai|off] [worker flags...]   # voice defaults to VOICE in .env.local
+# Load .env.local and run the coach, browser selector, or mint a phone link.
+#   bash scripts/run.sh coach [openai|gemini|off] [worker flags...]   # voice defaults to VOICE or OpenAI
+#   bash scripts/run.sh selector                                      # serves the browser call UI at http://127.0.0.1:8080
 #   bash scripts/run.sh link [room]                                   # room defaults to try-<time>
 # The coach joins your own rooms (empty agent name); set LINE=1 to use AGENT_NAME from .env.local for the call line.
 set -euo pipefail
@@ -13,7 +14,9 @@ case "${1:-}" in
         shift
         case "${1:-}" in gemini|openai|off) VOICE=$1; shift ;; esac
         agent=(); [ "${LINE:-}" = 1 ] || agent=(--agent-name "")
-        exec "$PY" -m facetime.worker --voice "${VOICE:-gemini}" "${agent[@]}" "$@" dev ;;
+        exec "$PY" -m facetime.worker --voice "${VOICE:-openai}" "${agent[@]}" "$@" dev ;;
+    selector)
+        exec "$PY" -m facetime.brodia_server ;;
     link)
         exec "$PY" -m facetime.mint_token --room "${2:-try-$(date +%H%M%S)}" --url ;;
     *)
