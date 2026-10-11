@@ -26,7 +26,9 @@ Terminal B, one practice call (scenario and receptivity default to `park neutral
 bash scripts/run.sh facetime barista uninterested
 ```
 
-Terminal B dispatches `brodia` into a fresh room with the selection as metadata (the same `{"brodia": {...}}` contract the web selector uses). It then waits for the agent to join, writes a one-hour connector token to `.local/facetime-oss.json` (mode 0600, gitignored) and runs the connector.
+Terminal B creates a room with a one-hour empty-room timeout so manual guest admission does not expire the waiting worker,
+then dispatches `brodia` with the selection as metadata (the same `{"brodia": {...}}` contract the web selector uses).
+It waits for the agent to join, writes a one-hour connector token to `.local/facetime-oss.json` (mode 0600, gitignored) and runs the connector.
 
 1. On the iPhone, open FaceTime, tap **Create Link** and copy it. Paste it at the hidden prompt.
 2. Click **Join** in the Chrome window, then admit the guest on the iPhone.
