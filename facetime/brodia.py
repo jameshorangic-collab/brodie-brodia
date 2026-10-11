@@ -50,21 +50,51 @@ def build_prompt(config: RoleplayConfig) -> str:
 END_PHRASES = ('end practice', 'stop practice', 'let\'s stop', 'lets stop', 'goodbye', 'bye', 'I need to go', 'i need to go')
 
 
+# P17-B: which pose observations the coach may cite. Problem states can become one improvement; a sustained good state one strength.
+VISUAL_PROBLEMS = {
+    'turned_away': 'turned away from the camera',
+    'out_of_frame': 'out of the camera frame',
+    'arms_crossed': 'arms crossed',
+    'too_close': 'very close to the camera (face filling much of the frame)',
+    'too_far': 'far from the camera (small in the frame)',
+    'leaning': 'torso leaning to one side',
+}
+VISUAL_STRENGTHS = (                       # (channel, label, minimum share of judged samples, phrase), first match wins
+    ('orientation', 'facing_camera', 0.7, 'faced the camera for most of the call'),
+    ('arms', 'arms_uncrossed', 0.9, 'kept arms uncrossed whenever arms were visible'),
+    ('framing', 'framing_ok', 0.8, 'stayed at a comfortable distance from the camera'),
+)
+MIN_JUDGED = 8          # verified samples a channel needs before a share is cited
+MIN_STRETCH_S = 5.0     # a problem must hold this long (stable stretch) to be cited
+NEAR_S = 5.0            # a caller line this close to a stretch start (or inside it) is "nearby"
+
+
+def _clock(t):
+    t = max(0.0, float(t))
+    return f'{int(t // 60)}:{int(t % 60):02d}'
+
+
 class FeedbackSession:
     """Ephemeral P04 transcript state; it never writes caller text to disk itself."""
     def __init__(self):
         self.caller = []
+        self.caller_lines = []          # (t, text) on the job clock, for nearby-utterance lookups
         self.coach = []
-        self.vision_notes = []
+        self.vision_notes = []          # verified notes only: dicts {signal, description, observed_at, certainty, nearby}
+        self.vision_summary = None      # the latest verified vision_summary event (facetime/vision_notes.Observer.stats())
         self.finished = False
 
     def observe(self, event):
         """Record a voice event; return the one-time coaching prompt on a real exit."""
         if event.get('type') == 'vision_note':
             if event.get('source_verified') and event.get('observable_description'):
-                note = event['observable_description'].strip()
-                nearby = (event.get('optional_nearby_utterance') or '').strip()
-                self.vision_notes.append((note, nearby))
+                self.vision_notes.append(dict(signal=event.get('signal') or '', description=event['observable_description'].strip(),
+                                              observed_at=event.get('observed_at'), certainty=event.get('certainty') or 'clear',
+                                              nearby=(event.get('optional_nearby_utterance') or '').strip()))
+            return None
+        if event.get('type') == 'vision_summary':
+            if event.get('source_verified') and isinstance(event.get('channels'), dict):
+                self.vision_summary = event
             return None
         if event.get('type') != 'voice':
             return None
@@ -72,6 +102,7 @@ class FeedbackSession:
         if not text:
             return None
         (self.caller if role == 'caller' else self.coach).append(text)
+        if role == 'caller' and isinstance(event.get('t'), (int, float)): self.caller_lines.append((float(event['t']), text))
         if self.finished or role != 'caller' or not self._ends(text):
             return None
         self.finished = True
@@ -83,11 +114,56 @@ class FeedbackSession:
         lower = text.lower()
         return any(re.search(r'\b' + re.escape(phrase.lower()) + r'\b', lower) for phrase in END_PHRASES)
 
+    def _nearby(self, start, end=None):
+        """The caller line closest to start within NEAR_S, else the first line inside [start, end]; '' when none."""
+        if start is None or not self.caller_lines: return ''
+        t, text = min(self.caller_lines, key=lambda x: abs(x[0] - start))
+        if abs(t - start) <= NEAR_S: return text
+        inside = [x for x in self.caller_lines if end is not None and start <= x[0] <= end]
+        return inside[0][1] if inside else ''
+
+    def _base_t(self):
+        ts = [self.caller_lines[0][0]] if self.caller_lines else []
+        if self.vision_summary and isinstance(self.vision_summary.get('first_t'), (int, float)): ts.append(self.vision_summary['first_t'])
+        ts += [n['observed_at'] for n in self.vision_notes if isinstance(n['observed_at'], (int, float))]
+        return min(ts) if ts else 0.0
+
+    def visual_observations(self):
+        """At most two verified observations, as plain lines: one strength and/or one improvement from the per-call summary,
+        else the most recent verified note(s). Never anything unverified."""
+        out = []; base = self._base_t()
+        ch = (self.vision_summary or {}).get('channels') or {}
+        for channel, label, min_share, phrase in VISUAL_STRENGTHS:
+            c = ch.get(channel) or {}
+            if c.get('judged', 0) >= MIN_JUDGED and (c.get('share') or {}).get(label, 0) >= min_share:
+                out.append(f'Strength (verified on camera): {phrase} ({c["counts"][label]} of {c["judged"]} judged video samples).')
+                break
+        best = None
+        for channel, c in ch.items():
+            for label, st in ((c or {}).get('longest') or {}).items():
+                if label in VISUAL_PROBLEMS and st.get('seconds', 0) >= MIN_STRETCH_S and (best is None or st['seconds'] > best[1]['seconds']):
+                    if any(n['signal'] == label and n['certainty'] != 'clear' and n['observed_at'] == st.get('start') for n in self.vision_notes):
+                        continue                                       # the stretch began on an uncertain note: do not cite it
+                    best = (label, st)
+        if best is not None:
+            label, st = best; near = self._nearby(st.get('start'), st.get('end'))
+            out.append(f'Improvement (verified on camera): {VISUAL_PROBLEMS[label]} for about {round(st["seconds"])} s, from about '
+                       f'{_clock(st["start"] - base)} into the call' + (f', near caller words: "{near}"' if near else '') + '.')
+        if not out and self.vision_notes:
+            problems = [n for n in self.vision_notes if n['signal'] in VISUAL_PROBLEMS]
+            for n in (problems or self.vision_notes)[-2:]:
+                near = n['nearby'] or self._nearby(n['observed_at'])
+                when = f' at about {_clock(n["observed_at"] - base)} into the call' if isinstance(n['observed_at'], (int, float)) else ''
+                out.append(f'Verified video observation: {n["description"]}{when}' + (f'; near caller words: "{near}"' if near else '') + '.')
+        return out[:2]
+
     def feedback_prompt(self):
         evidence = self.caller[-3:]
         quoted = '\n'.join(f'- Exact caller words: "{line}"' for line in evidence) or '- No usable caller transcript was captured.'
-        visuals = self.vision_notes[-1:]
-        visual_line = ('- Verified video observation: ' + visuals[0][0] + (f'; near caller words: "{visuals[0][1]}"' if visuals[0][1] else '') if visuals
+        visuals = self.visual_observations()
+        visual_line = ('- Verified video observations (coarse body position from sampled camera frames; cite each at most once, as the '
+                       'strength or improvement it is labelled, with its time or caller words; do not read feelings, interest, confidence '
+                       'or personality into them, and add no other visual claim):\n' + '\n'.join(f'  - {v}' for v in visuals) if visuals
                        else '- No verified visual observation is available, so this feedback is voice-only. Say once, briefly, that visual cues '
                             'were not evaluated this time; do not guess about or comment on appearance, body language, eye contact or posture.')
         return ('ROLEPLAY IS OVER. Switch to a brief, supportive coach voice exactly once. Give exactly: two strengths, two improvements, '
