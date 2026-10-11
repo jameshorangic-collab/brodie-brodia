@@ -26,6 +26,9 @@ async def dispatch_and_wait(config, timeout_s):
     room = 'brodia-ft-' + secrets.token_urlsafe(8).lower()
     metadata = json.dumps({'brodia': {'scenario': config.scenario, 'receptivity': config.receptivity}})
     async with api.LiveKitAPI() as lk:
+        # Agents do not keep an empty room alive. Manual FaceTime guest admission can exceed
+        # LiveKit's default five-minute timeout; match the connector token's one-hour lifetime.
+        await lk.room.create_room(api.CreateRoomRequest(name=room, empty_timeout=3600))
         await lk.agent_dispatch.create_dispatch(api.CreateAgentDispatchRequest(
             agent_name=os.environ.get('AGENT_NAME', 'brodia'), room=room, metadata=metadata))
         for _ in range(int(timeout_s * 2)):

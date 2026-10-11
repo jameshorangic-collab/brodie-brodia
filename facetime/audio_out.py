@@ -148,6 +148,7 @@ class MixInput:
         self.hold = hold   # True (2026-10-10 live call: 'two voices talking over each other'): the stream WAITS while a clip plays or is pending and resumes after it, instead of playing ducked under it
         self.chunks = collections.deque(); self.pending = 0; self.n_written = 0; self.n_read = 0; self.n_cleared = 0
         self.gain = 1.0; self.duck_until = 0.0; self.wake = asyncio.Event()
+        self.on_clear = None
     def write(self, pcm):
         pcm = np.asarray(pcm, np.int16)
         if len(pcm) == 0: return
@@ -167,6 +168,7 @@ class MixInput:
         return out
     def clear(self):
         self.n_cleared += self.pending; self.chunks.clear(); self.pending = 0
+        if self.on_clear is not None: self.on_clear()
     def ramp(self, target, n):
         """Per-sample gain from the current gain to target over n samples (no clicks on a duck step); remembers target."""
         g = np.linspace(self.gain, target, n, dtype=np.float32) if self.gain != target else np.full(n, target, np.float32)
@@ -198,6 +200,23 @@ class CuePlayer:
         self.n_dropped = 0
         self.mix = None; self._pump_task = None; self.pump_lead_s = 0.04; self.mix_frames = 0   # attach_mixer()
         self.last_voice_t = -1e9     # monotonic time of the last frame with real energy pushed to the source (clip or model voice)
+        self._levels = collections.deque(maxlen=64)  # bounded RMS envelope, scheduled against source playout
+        self._has_levels = False
+
+    def audio_level(self, now=None):
+        """Output PCM RMS (0..1) at the caller's playout time; None until PCM is observed.
+
+        A quiet frame or an exhausted source closes the mouth immediately. No 150 ms speaking hangover.
+        Reading this never consumes or modifies the audio. Each envelope entry represents 20 ms of output PCM.
+        """
+        if not self._has_levels: return None
+        now = time.monotonic() if now is None else now
+        while self._levels and self._levels[0][1] <= now: self._levels.popleft()
+        active = [rms for start, end, rms in self._levels if start <= now < end]
+        return max(active, default=0.0)
+
+    def reset_audio_level(self):
+        self._levels.clear(); self._has_levels = True; self.last_voice_t = -1e9
 
     def speaking(self, window_s=0.15):
         """Cheap: True when an audible frame (a clip or the mixed model voice) was pushed within window_s. The source queue is
@@ -207,6 +226,7 @@ class CuePlayer:
     def attach_mixer(self, duck_db=-10.0, hold_ms=150, gain_db=0.0, lead_ms=40, hold=True):
         """Add the optional mixer input (see the module docstring); returns the MixInput. The pump starts with run()."""
         self.mix = MixInput(duck_db=duck_db, hold_ms=hold_ms, gain_db=gain_db, hold=hold); self.pump_lead_s = lead_ms / 1000.0
+        self.mix.on_clear = self.reset_audio_level
         try:
             loop = asyncio.get_running_loop()
             if self._pump_task is None and not self._stop: self._pump_task = loop.create_task(self._pump())
@@ -287,7 +307,11 @@ class CuePlayer:
     SPEAK_PEAK = 400            # int16 peak above which a pushed frame counts as audible speech (about -38 dBFS)
 
     def _frame(self, chunk):
-        if len(chunk) and int(np.abs(chunk).max()) > self.SPEAK_PEAK: self.last_voice_t = time.monotonic()   # speaking() for the avatar's mouth
+        now = time.monotonic(); x = np.asarray(chunk, np.float32)  # float before abs: int16(-32768) overflows
+        if len(x) and float(np.abs(x).max()) > self.SPEAK_PEAK: self.last_voice_t = now
+        rms = float(np.sqrt(np.mean(x * x)) / 32768.0) if len(x) else 0.0
+        lead = max(0.0, min(float(getattr(self.source, 'queued_duration', 0) or 0), 0.2))
+        self._levels.append((now + lead, now + lead + len(x) / SAMPLE_RATE, rms)); self._has_levels = True
         if self.rtc is not None:
             return self.rtc.AudioFrame(chunk.tobytes(), SAMPLE_RATE, 1, len(chunk))
         return chunk
@@ -354,4 +378,5 @@ class CuePlayer:
 
     def stop(self):
         self._stop = True; self._wake.set()
+        self.reset_audio_level()
         if self.mix is not None: self.mix.wake.set()

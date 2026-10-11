@@ -14,7 +14,7 @@ case "${1:-}" in
     coach)
         shift
         case "${1:-}" in gemini|openai|off) VOICE=$1; shift ;; esac
-        agent=(); [ "${LINE:-}" = 1 ] || agent=(--agent-name "")
+        agent=(--agent-name "${AGENT_NAME:-brodie-coach}"); [ "${LINE:-}" = 1 ] || agent=(--agent-name "")
         exec "$PY" -m facetime.worker --voice "${VOICE:-gemini}" "${agent[@]}" "$@" dev ;;
     selector)
         exec "$PY" -m facetime.brodia_server ;;

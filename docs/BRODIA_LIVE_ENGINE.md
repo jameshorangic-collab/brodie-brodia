@@ -192,11 +192,11 @@ rendered by `facetime/brodia_avatar.py`:
 
 - **Roleplay:** the partner for the job's scenario from `assets/avatar/brodia-avatars.json`
   (barista = Jess, park = Maya, street = Nadia) on a calm scenario-tinted gradient. The app draws
-  her eyes (blink every 2.8–5.5 s), brows and mouth (one dark rounded shape). The mouth cycles
-  open shapes while the agent's audio is actually going out (`CuePlayer.speaking()`: a pushed
-  frame with real energy within 150 ms, covering the Gemini voice mixed into the cue track) and
-  rests in a smile otherwise. Receptivity tweaks the resting face: interested a little warmer,
-  uninterested flatter. Jess's glasses are baked into her render; no glasses overlay is ever drawn.
+  her eyes (blink every 3–6 s), brows and mouth (one dark rounded shape), with gentle breathing,
+  sway and tilt. Final output PCM RMS drives small/medium/wide mouths, scheduled against the source
+  queue. Silence, end of audio and interruptions close the mouth; speaking-state cycling is the fallback.
+  Neutral, smiling, playful/flirty and thinking expressions read existing rapport and Gemini state.
+  Jess's glasses are baked into her render; no glasses overlay is ever drawn.
   A small "Jess · Barista" label sits top-left.
 - **Feedback:** when the roleplay ends (`FeedbackSession.finished`, the moment the grounded feedback
   is requested) the track switches to Coach Brodie (`brodie-coach.png`, default pose) with a gentle
@@ -210,7 +210,8 @@ rendered by `facetime/brodia_avatar.py`:
   no `brodia-mirror` track is published. No inset until caller video arrives or while it is
   stalled. `--mirror` alone is unchanged.
 
-Flags: `--avatar-fps` (default 15, env `BRODIA_AVATAR_FPS`); the shape follows `--mirror-shape`
+Flags: `--avatar-fps` (default 15, clamped to 10–15, env `BRODIA_AVATAR_FPS`);
+`--avatar-expression auto|neutral|smiling|playful|thinking`; the shape follows `--mirror-shape`
 (portrait 540x960 default, landscape 960x540). One loop per job; rendering and I420 conversion run
 in a worker thread, never on the audio path. Measured offline: partner frame ~0.2 ms, coach ~3.5 ms,
 partner + inset + I420 ~1 ms (plus pose lite ~12 ms per caller frame with `--mirror`).
@@ -223,7 +224,9 @@ LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --a
 
 Offline: `.venv/bin/python scripts/test_brodia_avatar.py` (sample renders go to
 `$BRODIA_AVATAR_OUT`, default `data/tmp/avatars`); `.venv/bin/python -m facetime.brodia_avatar [dir]`
-writes a sheet. Live browser/FaceTime rendering of this track is not yet tested.
+writes a sheet. Actual Gemini Live + LiveKit publish/subscribe passed at 14.9 FPS with all amplitude
+mouth shapes and closure after speech. Offline preview: `.venv/bin/python -m facetime.avatar_preview`.
+See [AVATAR_ANIMATION.md](AVATAR_ANIMATION.md) for live tests and Chert setup. The iPhone hop requires a real call.
 
 ## Restart and test
 
