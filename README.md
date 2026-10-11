@@ -9,7 +9,7 @@ You write the coaching. Perception is done for you.
 - macOS or Linux, Python 3.12, [uv](https://docs.astral.sh/uv/) (`brew install uv`)
 - A free LiveKit Cloud project ([cloud.livekit.io](https://cloud.livekit.io))
 - A phone, or Safari on a Mac
-- Your team card (Gemini team token)
+- An OpenAI API key with Realtime access
 
 ## 1. Install (about 30 minutes, mostly waiting)
 
@@ -46,7 +46,7 @@ python scripts/test_voice.py
 
 ## 4. Configure
 
-Copy `.env.example` to `.env.local` and fill it in. The LiveKit values come from your project's Settings, then Keys. The Gemini token is on your team card.
+Copy `.env.example` to `.env.local` and fill it in. The LiveKit values come from your project's Settings, then Keys. Keep the OpenAI API key local and never commit it.
 
 ## 5. First call
 
@@ -54,7 +54,7 @@ Terminal A, the coach:
 
 ```
 source .venv/bin/activate && set -a && source .env.local && set +a
-python -m facetime.worker --voice gemini dev
+python -m facetime.worker --voice openai dev
 ```
 
 Terminal B, the link (use a new room name for every attempt):

@@ -26,7 +26,7 @@ Cues the player finished or dropped go to --cue-log / RTCOACH_CUE_LOG (the coach
 Plan: --plan, else env PLAN, else starter/plan.txt (the hackathon script; ships with the demo plan), else the demo plan (DEFAULT_PLAN);
 --exercise for one exercise, --auto for auto-detect. Job metadata is read for chert_call and media and logged (never acted on).
 
-Voice (--voice gemini, default off: the default and events-only modes are untouched): facetime/voice.py runs Gemini Live (voice Puck)
+Voice (--voice openai, the default): facetime/voice.py runs OpenAI Realtime
 in this same participant, its audio mixed into the cue player's one track through CuePlayer.attach_mixer() (ducked about 10 dB under a
 count) and gated to the gaps between sets (session state wait/rest/done, a gesture or an armed probe outside a set, a caller's question
 during a rest; the caller's audio is not forwarded during a set and a reply still streaming when a set starts is cut: interrupted,
@@ -42,17 +42,17 @@ that publishes video (or, with no video, audio), starts the model session on the
 {state: "open", exercise: null, count: 0, mode: "voice"} once the session is up (handlers greet on it) and a status event (no pose
 fields) every 5 s, and ends on the same paths (leave grace, disconnect, --max-s, connect failure). The Floor is then ALWAYS OPEN
 (--floor open, the default without perception): the caller's audio is always forwarded, ask_voice fires at once, nothing is cut;
-say_now still plays bank strings. --vision (with --voice gemini) tees the caller's video track into the model session at about
+say_now still plays bank strings. --vision (with a realtime voice provider) tees the caller's video track into the model session at about
 1 fps (--vision-fps, at most 2): facetime/voice.py VideoTee, a livekit.agents VideoInput set as AgentSession.input.video, pulled by
 the framework into the realtime session's push_video (JPEG). A warm job never starts a session or forwards a frame. The plan file
 is then appended to the persona as free text (a recipe, a checklist), not parsed as exercises.
-  .venv/bin/python -m facetime.worker --perception off --vision --voice gemini --persona starter/examples/meal_prep/persona.md \
+  .venv/bin/python -m facetime.worker --perception off --vision --voice openai --persona starter/examples/meal_prep/persona.md \
       --plan-file starter/examples/meal_prep/recipe.md --handlers starter/examples/meal_prep/handlers.py dev
 Run:
   .venv/bin/python -m facetime.worker --help
   .venv/bin/python -m facetime.worker [--plan "squats:10,pushups:8"] [--events-only] [--publish-data] dev     # LIVEKIT_URL/API_KEY/API_SECRET in env
   AGENT_NAME=brodie-coach EVENTS_ONLY=1 .venv/bin/python -m facetime.worker start
-  GEMINI_API_KEY=... .venv/bin/python -m facetime.worker --voice gemini dev                                      # + GEMINI_LIVE_MODEL, GEMINI_VOICE
+  .venv/bin/python -m facetime.worker --voice openai dev                                                         # OPENAI_API_KEY in env
 The flags before the LiveKit subcommand are ours; `dev`, `start`, `connect`, `download-files` and their options are the LiveKit Agents CLI's.
 """
 import argparse, asyncio, collections, json, logging, os, sys, threading, time
@@ -88,7 +88,7 @@ def build_parser():
                                         'after a code change, livekit-agents 1.8.5 has no hot reload), start (production), connect --room R (join one room directly), '
                                         'download-files. The arms-up latency probe is off unless --latency-probe (env RTCOACH_LATENCY_PROBE=1) and never acts during '
                                         'an active set. Env: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, AGENT_NAME, PLAN, EVENTS_ONLY, RTCOACH_EVENT_LOG, '
-                                        'RTCOACH_CUE_LOG, RTCOACH_LATENCY_PROBE, GEMINI_API_KEY, GEMINI_LIVE_MODEL, GEMINI_VOICE, GEMINI_LANGUAGE.')
+                                        'RTCOACH_CUE_LOG, RTCOACH_LATENCY_PROBE, OPENAI_API_KEY, OPENAI_REALTIME_MODEL, OPENAI_VOICE.')
     add_arguments(ap)
     for act in ap._actions:                                                 # the perception flag, with the worker's default (env) and what the worker does with it
         if act.dest == 'latency_probe':
@@ -108,12 +108,12 @@ def build_parser():
     ap.add_argument('--video-quality', default='low', choices=['low', 'medium', 'high', 'none'], help='simulcast layer to request when the publisher simulcasts')
     ap.add_argument('--max-s', type=float, default=None, help='leave the room this long after the first video frame (default: stay until the room closes)')
     ap.add_argument('--idle-processes', type=int, default=int(os.environ.get('RTCOACH_IDLE_PROCS', '1')), help='preloaded job processes kept ready (models loaded in prewarm)')
-    ap.add_argument('--voice', default=os.environ.get('VOICE', 'off'), choices=['off', 'gemini', 'openai'], help='conversational layer between sets: gemini = Gemini Live, openai = OpenAI Realtime, through the cue track (facetime/voice.py; env VOICE)')
-    ap.add_argument('--voice-model', default=os.environ.get('GEMINI_LIVE_MODEL') or None, help='realtime model id (env GEMINI_LIVE_MODEL; default facetime.voice.DEFAULT_MODEL, or OPENAI_DEFAULT_MODEL with --voice openai)')
+    ap.add_argument('--voice', default=os.environ.get('VOICE', 'openai'), choices=['off', 'gemini', 'openai'], help='conversational layer between sets: OpenAI Realtime by default, or Gemini Live when explicitly selected, through the cue track (facetime/voice.py; env VOICE)')
+    ap.add_argument('--voice-model', default=None, help='realtime model id (uses OPENAI_REALTIME_MODEL for --voice openai or GEMINI_LIVE_MODEL for --voice gemini when omitted)')
     ap.add_argument('--voice-name', default=None, help='realtime voice (env GEMINI_VOICE, default Puck, the cue bank voice; env OPENAI_VOICE with --voice openai)')
     ap.add_argument('--persona', default=os.environ.get('PERSONA_FILE', os.path.join(STARTER_DIR, 'persona.md')), help='the voice persona prompt file (starter/persona.md)')
     ap.add_argument('--handlers', default=os.environ.get('HANDLERS_FILE') or None, help='a module with on_event(event, say_now, ask_voice); default starter/handlers.py whenever that file exists, in every mode '
-                                                                                        '(without --voice gemini, ask_voice returns None); --handlers none loads nothing')
+                                                                                        '(without a realtime voice provider, ask_voice returns None); --handlers none loads nothing')
     ap.add_argument('--log-caller', action='store_true', help='also emit and log the caller\'s transcribed turns as voice events (role caller); off by default: the caller\'s words never leave the model session (docs/STARTER_README.md section 8)')
     ap.add_argument('--plan-file', default=os.environ.get('PLAN_FILE', os.path.join(STARTER_DIR, 'plan.txt')), help='the plan when neither --plan nor PLAN is given (starter/plan.txt); '
                                                                                                                       'with --perception off the file is appended to the persona as free text (a recipe)')
@@ -121,7 +121,7 @@ def build_parser():
                                                                                                            'joins, binds to the caller, starts the voice and emits one synthetic session {state: open} event; the floor is then always open')
     ap.add_argument('--floor', default=os.environ.get('FLOOR') or None, choices=['gated', 'open'], help='gated = the voice speaks between sets only (the default with perception on); '
                                                                                                         'open = always allowed to speak, nothing is ever cut (the default with --perception off; env FLOOR)')
-    ap.add_argument('--vision', action='store_true', default=truthy(os.environ.get('VISION')), help='with --voice gemini: tee the caller\'s video into the model session at --vision-fps (env VISION=1)')
+    ap.add_argument('--vision', action='store_true', default=truthy(os.environ.get('VISION')), help='with --voice openai or --voice gemini: tee the caller\'s video into the model session at --vision-fps (env VISION=1)')
     ap.add_argument('--vision-fps', type=float, default=float(os.environ.get('VISION_FPS', '1') or 1), help='frames per second handed to the model with --vision (default 1, at most 2; JPEG per frame)')
     ap.add_argument('--vision-notes', action='store_true', default=truthy(os.environ.get('VISION_NOTES')), help='facetime/vision_notes.py: sample the caller video at --vision-notes-fps, '
                                                                                                             'emit vision_note events (facing camera / turned away / out of frame) and frame-change counters (env VISION_NOTES=1)')
@@ -571,7 +571,7 @@ class CoachJob:
 
     # ---- the conversational layer (facetime/voice.py) ----
     def build_voice(self):
-        """--voice gemini: the VoiceLayer with a GeminiModel (session started on bind, never on a warm job) and the mixer input on the
+        """The realtime voice layer (session started on bind, never on a warm job) and the mixer input on the
         cue player; --handlers alone: the handlers with say_now only. Returns None (with a message) when the layer cannot run."""
         from facetime.voice import VoiceLayer, GeminiModel, OpenAIModel, VideoTee, load_handlers, read_text, DEFAULT_PERSONA
         a = self.a; model = None
@@ -648,7 +648,7 @@ def main(argv=None):
         print(f'[worker] unknown flag {rest[0]!r} (our flags go before the LiveKit subcommand: {", ".join(LK_COMMANDS)})', file=sys.stderr); return 2
     os.environ[ARGS_ENV] = json.dumps({k: v for k, v in vars(a).items() if k != 'help'})
     if a.vision and a.voice == 'off':
-        print('[worker] --vision only does something with --voice gemini (the video goes to the model session); nothing is forwarded', flush=True)
+        print('[worker] --vision needs a realtime voice provider (the video goes to the model session); nothing is forwarded', flush=True)
     print(f'[worker] agent {a.agent_name!r}; mode {describe_mode(a)}; '
           f'audio {"OFF (events only)" if a.events_only else "cue player"}; voice {a.voice}{" (" + (a.voice_model or "default model") + ", " + (a.voice_name or "default voice") + ")" if a.voice != "off" else ""}; '
           f'handlers {a.handlers or "none"}; data channel {"on" if a.publish_data else "off"}; events -> {a.event_log}', flush=True)
