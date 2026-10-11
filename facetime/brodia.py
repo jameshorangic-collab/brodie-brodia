@@ -88,7 +88,8 @@ class FeedbackSession:
         quoted = '\n'.join(f'- Exact caller words: "{line}"' for line in evidence) or '- No usable caller transcript was captured.'
         visuals = self.vision_notes[-1:]
         visual_line = ('- Verified video observation: ' + visuals[0][0] + (f'; near caller words: "{visuals[0][1]}"' if visuals[0][1] else '') if visuals
-                       else '- No verified visual observation is available. Do not mention appearance, body language, camera, or video.')
+                       else '- No verified visual observation is available, so this feedback is voice-only. Say once, briefly, that visual cues '
+                            'were not evaluated this time; do not guess about or comment on appearance, body language, eye contact or posture.')
         return ('ROLEPLAY IS OVER. Switch to a brief, supportive coach voice exactly once. Give exactly: two strengths, two improvements, '
                 'and one next-attempt tip. Base every specific claim on the exact caller words below; quote only those words and do not invent '
                 'attraction, confidence scores, or private details. Use a visual observation only when it is explicitly marked verified below. '
