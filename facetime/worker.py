@@ -271,6 +271,9 @@ async def entrypoint(ctx: JobContext):
         pipe = None
     if pipe is None and not perception_off(a): pipe = build_pipeline(cfg)   # single use: a Perception owns it until the job ends
     bank = ud.get('bank')
+    if a.brodia_scenario:
+        from facetime.audio_out import CueBank
+        bank = CueBank.disabled()
     if bank is None and not a.events_only:
         from facetime.audio_out import CueBank
         bank = CueBank()
@@ -638,7 +641,12 @@ class CoachJob:
                     if a.plan: plan_line = f'\n\nFor your own reference only, never to be read aloud: the session plan, in order, is {a.plan}.'
                     elif getattr(a, 'plan_text', None): plan_line = '\n\nThe plan you are coaching, step by step (follow it in order, one step at a time; never read it aloud):\n' + a.plan_text
                 model_cls = GeminiModel if a.voice == 'gemini' else OpenAIModel
-                model = model_cls(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice)
+                options = {}
+                if is_brodia and a.voice == 'gemini':
+                    from facetime.brodia import RoleplayConfig
+                    from facetime.brodia_live import BrodiaController
+                    options['controller'] = BrodiaController(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
+                model = model_cls(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice, **options)
         if getattr(a, 'vision', False):
             if model is None: print('[vision] --vision needs --voice gemini or openai with a model session: no video is forwarded', flush=True)
             else: self.vision = VideoTee(fps=a.vision_fps)
@@ -655,7 +663,7 @@ class CoachJob:
         if model is not None:
             v.attach()
             persona_source = 'facetime.brodia.build_prompt' if is_brodia else a.persona
-            print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {persona_source} ({len(model.persona)} chars'
+            print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {"American English (system instructions)" if is_brodia else (model.language or "model default")}; persona {persona_source} ({len(model.persona)} chars'
                   + (f', plan text {len(a.plan_text)} chars from {a.plan_file}' if getattr(a, 'plan_text', None) else '') + f'); '
                   f'handlers {hpath or "none"}; mixer on the cue track (duck {20 * __import__("math").log10(self.player.mix.duck):.0f} dB); '
                   f'floor {"ALWAYS OPEN" if floor_open else "gated to the gaps between sets"}; probe window {"on" if v.floor.probe else "off"}; '
@@ -666,13 +674,17 @@ class CoachJob:
 
     def emit_voice(self, role, text):
         """A model (or caller) turn as an event of type voice {text, t, role}: the queue, the JSONL log, the console (own seq counter)."""
-        if role == 'caller' and not getattr(self.a, 'log_caller', False):
+        private = bool(getattr(self.a, 'brodia_scenario', None)) and not getattr(self.a, 'log_caller', False)
+        if role == 'caller' and not getattr(self.a, 'log_caller', False) and not private:
             print(f'[voice] caller spoke ({len(text.split())} words; not logged, --log-caller to keep transcripts)', flush=True); return
         t = round(time.monotonic() - (self.per.t0 if self.per is not None else self.t0), 3)
         ev = dict(v=EVENT_SCHEMA_VERSION, t=t, t_wall=round(time.time(), 3), seq=self.voice_seq, type='voice', text=text, role=role, producer='voice')
         self.voice_seq += 1
-        print(f'[voice] {role}: {text}', flush=True)
         self.events.put_nowait(ev)
+        if private:
+            print(f'[brodia] {role} final transcript ({len(text.split())} words; memory only)', flush=True)
+            return
+        print(f'[voice] {role}: {text}', flush=True)
         if self.event_writer is not None:
             try: self.event_writer(ev)
             except Exception as e: log.warning('voice event log failed: %r', e)

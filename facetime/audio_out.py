@@ -98,6 +98,13 @@ def normalize_level(pcm, target_dbfs=TARGET_RMS_DBFS, ceil_dbfs=PEAK_CEIL_DBFS):
 
 class CueBank:
     """text -> int16 PCM (24 kHz mono), loaded lazily from the manifest of one voice bank."""
+    @classmethod
+    def disabled(cls):
+        """Empty bank keeps the single streaming mixer track without prerecorded speech."""
+        bank = cls.__new__(cls)
+        bank.dir, bank.manifest, bank.cache = 'disabled (Brodia)', {}, {}
+        return bank
+
     def __init__(self, cues_dir=None):
         self.dir = cues_dir or default_cues_dir()
         log.info('cue bank %s', self.dir); ensure_beep(self.dir)

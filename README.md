@@ -73,11 +73,16 @@ Always start Terminal A before the phone joins.
 With `.env.local` configured, start these in separate terminals:
 
 ```
-bash scripts/run.sh coach gemini --perception off
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off
 bash scripts/run.sh selector
 ```
 
 Then open `http://127.0.0.1:8080`, choose a scenario and receptivity, and select **Start practice**. Allow camera and microphone access in the browser. The page mints a short-lived room token locally; credentials are not sent to the browser.
+
+Brodia uses Leda, American-English instructions, Python-owned rapport and blocking
+social-decision tools. It does not use the starter fitness prompts or audio clips.
+See [the engine guide](docs/BRODIA_LIVE_ENGINE.md) for settings, tests, privacy,
+realtime limitations and the live-call acceptance matrix.
 
 ## What you change
 
