@@ -142,7 +142,7 @@ async def test_job():
 def test_parser():
     print('F. worker flags')
     from facetime import worker
-    a = worker.build_parser().parse_args(['--perception', 'off', '--voice', 'openai', '--vision-notes', '--vision-notes-fps', '0.5'])
+    a = worker.build_parser().parse_args(['--perception', 'off', '--voice', 'gemini', '--vision-notes', '--vision-notes-fps', '0.5'])
     check(a.vision_notes is True and a.vision_notes_fps == 0.5, '--vision-notes parsed')
     check(worker.build_parser().parse_args([]).vision_notes is False, 'off by default')
 
