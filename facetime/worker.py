@@ -228,14 +228,22 @@ def describe_mode(a):
 
 async def entrypoint(ctx: JobContext):
     ud = ctx.proc.userdata
-    a = ud.get('args') or load_args(); cfg = ud.get('cfg') or Config.from_args(a)
+    a = ud.get('args') or load_args(); md = parse_metadata(ctx.job.metadata)
+    selected = (md.get('brodia') or {}) if isinstance(md, dict) else {}
+    if selected:
+        if getattr(a, 'brodia_scenario', None) and (a.brodia_scenario != selected.get('scenario') or a.brodia_receptivity != selected.get('receptivity')):
+            raise ValueError('dispatch Brodia configuration conflicts with worker flags')
+        from facetime.brodia import RoleplayConfig
+        config = RoleplayConfig(selected.get('scenario'), selected.get('receptivity'))
+        a.brodia_scenario, a.brodia_receptivity = config.scenario, config.receptivity
+    cfg = ud.get('cfg') or Config.from_args(a)
     pipe = ud.pop('pipe', None)
     if pipe is None and not perception_off(a): pipe = build_pipeline(cfg)   # single use: a Perception owns it until the job ends
     bank = ud.get('bank')
     if bank is None and not a.events_only:
         from facetime.audio_out import CueBank
         bank = CueBank()
-    job = CoachJob(ctx, a, cfg, pipe, bank, parse_metadata(ctx.job.metadata))
+    job = CoachJob(ctx, a, cfg, pipe, bank, md)
     await job.run()
 
 
