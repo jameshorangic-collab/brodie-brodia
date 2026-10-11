@@ -198,6 +198,7 @@ Offline checks:
 .venv/bin/python scripts/test_voice.py
 .venv/bin/python scripts/test_vision_notes.py
 .venv/bin/python scripts/test_brodia_mirror.py
+.venv/bin/python scripts/test_brodia_pose_notes.py         # P17-B pose channels + feedback citations
 node scripts/test_brodia_browser.cjs
 ```
 
@@ -225,6 +226,48 @@ and no reroll; initial audio arrived approximately 1.1 seconds after the synthet
 greeting's nominal end for Barista (1.4 seconds for Park). Leda was selected in the actual connection configuration.
 These are synthetic smoke results, not a human voice-quality or latency
 benchmark. No private transcript or recording was retained.
+
+## Pose-based body-language notes (P17-B)
+
+`facetime/vision_notes.py` (worker `--vision-notes`, ~1 fps, MediaPipe pose lite)
+judges four coarse channels per sample. Each abstains (`unknown`) when its
+landmarks are not visible enough (MediaPipe visibility ≥ 0.6, arms ≥ 0.5) or
+are outside the frame, and a state becomes a note only when it holds for 3 of
+the last 4 samples (one note per change). The extra channels are judged only
+while the orientation sample is `facing_camera`. Sizes are measured in units of
+sqrt(frame width × height), so landscape and portrait frames agree.
+
+| Channel | Signals | Rule |
+| --- | --- | --- |
+| orientation (unchanged) | `facing_camera`, `turned_away`, `out_of_frame` | head yaw ≤ 0.4 facing, ≥ 1.0 turned; shoulder fallback |
+| framing | `too_close`, `framing_ok`, `too_far` | ear-to-ear ≥ 0.38 close, 0.08–0.30 ok, ≤ 0.05 far; eye fallback for close (eyes ≥ 0.15), shoulders ≤ 0.12 far |
+| arms | `arms_crossed`, `arms_uncrossed` | both elbows and wrists visible and in frame; both wrists ≥ 0.2 half-shoulder-widths past the midline at torso height = crossed, both ≥ 0.2 on their own side = uncrossed |
+| lean (sideways only) | `leaning`, `upright` | both hips visible and in frame; shoulder→hip line ≤ 8° upright, ≥ 15° leaning |
+
+Phone framing usually shows only the head and torso. In that framing the
+`lean` channel and often the `arms` channel abstain, which is the intended
+behaviour. Baseline states (`framing_ok`, `arms_uncrossed`, `upright`) are
+counted but noted only when they end a problem state. If an extra channel sees
+no sample of its current state for a whole window, it drops that state.
+
+Every 5 samples the worker emits a `vision_summary` event (`Observer.stats()`:
+judged sample counts and shares per label, plus the longest stable stretch per
+label). `FeedbackSession` (facetime/brodia.py) cites at most two verified lines:
+
+- one strength: facing the camera ≥ 70 %, arms uncrossed ≥ 90 % or framing OK
+  ≥ 80 % of at least 8 judged samples.
+- one improvement: the longest problem stretch of at least 5 s, given with its
+  duration, its time into the call and the nearest caller words.
+
+The prompt states counts, not percentages. With no summary it falls back to
+the latest verified notes. When there is no verified video, the feedback is
+voice-only and says so. Unverified notes and summaries are never used.
+
+**Not inferred:** emotion, mood, attraction, interest, confidence,
+personality, gaze or eye contact, facial expression, and forward slouch (a
+front camera cannot see it). The thresholds are first estimates. Only the
+synthetic-landmark tests check them; nobody has validated them on real
+callers yet.
 
 ## Live-call acceptance matrix (pending human testing)
 
