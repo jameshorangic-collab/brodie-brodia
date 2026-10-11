@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import os as _os, tempfile as _tempfile; _os.environ['BRODIA_NEXT_CALL_PATH'] = _os.path.join(_tempfile.mkdtemp(prefix='brodia-test-'), 'next_call.json')  # never touch a real pending P13 selection
 from facetime.brodia import RoleplayConfig, SCENARIOS, RECEPTIVITIES, FeedbackSession
 from facetime.brodia_live import BrodiaController, BRODIA_VOICES
 from facetime.rapport import Evaluation, RapportSettings, RapportState, acceptance_probability

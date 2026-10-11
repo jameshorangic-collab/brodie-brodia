@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
 const source = html.match(/<script>\s*([\s\S]*?)<\/script>/)[1];
 
-async function test(scenario, receptivity) {
+async function test(scenario, receptivity, cameraFails = false) {
   const nodes = {
     '#start': {}, '#leave': {}, '#status': {},
     '#media': { elements: [], append(e) { this.elements.push(e); }, replaceChildren() { this.elements = []; } },
@@ -17,7 +17,11 @@ async function test(scenario, receptivity) {
     constructor(options) {
       active = this; this.options = options; this.events = {};
       this.localParticipant = {
-        enableCameraAndMicrophone: async () => { this.microphone = true; },
+        setMicrophoneEnabled: async (on) => { assert.equal(this.camera, undefined, 'microphone must be enabled before the camera'); this.microphone = on; },
+        setCameraEnabled: async (on) => {
+          if (cameraFails) { this.camera = false; const e = new Error('Permission denied'); e.name = 'NotAllowedError'; throw e; }
+          this.camera = on;
+        },
         trackPublications: new Map([['audio', { track: audio }]]),
       };
     }
@@ -42,6 +46,11 @@ async function test(scenario, receptivity) {
   assert.equal(capture.echoCancellation, true); assert.equal(capture.noiseSuppression, true);
   assert.equal(capture.autoGainControl, true); assert.equal(capture.channelCount, 1);
   assert.equal(active.audioStarted, true); assert.equal(active.microphone, true);
+  assert.equal(active.disconnected, undefined, 'call must continue');
+  assert.ok(nodes['#status'].textContent.startsWith(`Connected to ${scenario} + ${receptivity}.`));
+  assert.equal(nodes['#status'].textContent.includes('Camera unavailable — voice-only practice'), cameraFails);
+  if (!cameraFails) assert.equal(active.camera, true);
+  assert.equal(nodes['#leave'].hidden, false);
   assert.equal(nodes['#media'].elements[0].muted, true); // no local audio loopback
   active.events.track({ attach: () => ({ muted: false }) });
   assert.equal(nodes['#media'].elements[1].muted, false); // Gemini remains audible
@@ -73,11 +82,14 @@ async function testNextCall(scenario, receptivity) {
 }
 
 (async () => {
+  assert.ok(html.includes('camera and microphone are streamed live to the AI practice partner; they are not recorded by default'), 'privacy notice missing');
   await testNextCall('park', 'neutral');
   await testNextCall('street', 'uninterested');
   console.log('next FaceTime call (demo-only) button: POST /api/next-call and honest copy: PASS');
   for (const scenario of ['barista', 'street', 'park']) {
     for (const stance of ['interested', 'neutral', 'uninterested']) await test(scenario, stance);
   }
+  await test('park', 'neutral', true);
+  console.log('camera denied: call continues voice-only with honest status: PASS');
   console.log('9/9 browser selections, audio preferences, local mute, remote playback and disconnect: PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });

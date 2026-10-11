@@ -214,18 +214,45 @@ def configure_brodia_session(a, config):
     return a
 
 
-def apply_brodia_dispatch(a, metadata):
-    """Validate browser dispatch metadata and specialize this one job's args."""
-    selected = (metadata.get('brodia') or {}) if isinstance(metadata, dict) else {}
-    if selected:
-        if getattr(a, 'brodia_scenario', None) and (a.brodia_scenario != selected.get('scenario') or a.brodia_receptivity != selected.get('receptivity')):
-            raise ValueError('dispatch Brodia configuration conflicts with worker flags')
-        from facetime.brodia import RoleplayConfig
-        return configure_brodia_session(a, RoleplayConfig(selected.get('scenario'), selected.get('receptivity')))
+DEFAULT_BRODIA = ('park', 'neutral')          # P02 demo default when a brodia agent job has no valid selection and no flags
+
+
+def is_brodia_agent(a):
+    """A worker registered as a Brodia agent (`--agent-name brodia...`) must never fall back to the starter fitness coach."""
+    return str(getattr(a, 'agent_name', '') or '').startswith('brodia')
+
+
+def dispatch_config(metadata):
+    """The explicit `brodia` dispatch selection as a RoleplayConfig; None when absent or invalid (invalid is logged, never a crash)."""
+    if not isinstance(metadata, dict) or 'brodia' not in metadata: return None
+    from facetime.brodia import RoleplayConfig
+    selected = metadata.get('brodia')
+    try:
+        if not isinstance(selected, dict): raise ValueError(f'expected an object, got {type(selected).__name__}')
+        return RoleplayConfig(selected.get('scenario'), selected.get('receptivity'))
+    except ValueError as e:
+        print(f'[brodia] invalid brodia dispatch metadata ignored: {e}', flush=True)
+        return None
+
+
+def _brodia_fallback(a):
+    """Worker flags, else (brodia agent only) the default Brodia persona; anything else keeps the starter coach."""
+    from facetime.brodia import RoleplayConfig
     if getattr(a, 'brodia_scenario', None):
-        from facetime.brodia import RoleplayConfig
-        return configure_brodia_session(a, RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
-    return a
+        return configure_brodia_session(a, RoleplayConfig(a.brodia_scenario, a.brodia_receptivity)), 'worker flags'
+    if is_brodia_agent(a):
+        return configure_brodia_session(a, RoleplayConfig(*DEFAULT_BRODIA)), 'Brodia default'
+    return a, 'starter coach (not a brodia agent)'
+
+
+def apply_brodia_dispatch(a, metadata):
+    """Validate browser dispatch metadata and specialize this one job's args (explicit metadata wins over flags)."""
+    config = dispatch_config(metadata)
+    if config is not None:
+        if getattr(a, 'brodia_scenario', None) and (a.brodia_scenario, a.brodia_receptivity) != (config.scenario, config.receptivity):
+            print(f'[brodia] dispatch metadata {config.scenario} + {config.receptivity} overrides worker flags {a.brodia_scenario} + {a.brodia_receptivity}', flush=True)
+        return configure_brodia_session(a, config)
+    return _brodia_fallback(a)[0]
 
 
 def is_chert_caller_job(md):
@@ -237,21 +264,23 @@ def is_chert_caller_job(md):
 
 def select_brodia(a, md):
     """P13 persona source, in priority order: explicit browser dispatch metadata (`brodia`), then the DEMO-ONLY pending
-    next-call selection (consumed once, real Chert caller jobs only, never warm jobs), then the worker flags/default.
-    Returns (args, source) and logs the source."""
-    if isinstance(md, dict) and md.get('brodia'):
-        a = apply_brodia_dispatch(a, md); source = 'browser dispatch metadata'
-    elif is_chert_caller_job(md) and os.environ.get('BRODIA_NEXT_CALL', '1') != '0':
-        from facetime import next_call
-        record, why = next_call.consume()
+    next-call selection (consumed once, real Chert caller jobs only, never warm jobs), then the worker flags, then (brodia
+    agent) the default Brodia persona. Returns (args, source) and logs the source."""
+    md = md if isinstance(md, dict) else {}
+    config = dispatch_config(md)
+    if config is not None:
+        a = apply_brodia_dispatch(a, {'brodia': {'scenario': config.scenario, 'receptivity': config.receptivity}}); source = 'browser dispatch metadata'
+    else:
+        record, why = None, None
+        if is_chert_caller_job(md) and os.environ.get('BRODIA_NEXT_CALL', '1') != '0':
+            from facetime import next_call
+            record, why = next_call.consume()
         if record is not None:
             a = configure_brodia_session(a, record['config']); source = f'next-call selection (demo-only; {why})'
         else:
-            a = apply_brodia_dispatch(a, md); source = ('worker flags' if getattr(a, 'brodia_scenario', None) else 'default (no Brodia config)') + f' (next-call: {why})'
-    else:
-        a = apply_brodia_dispatch(a, md)
-        source = 'worker flags' if getattr(a, 'brodia_scenario', None) else 'default (no Brodia config)'
-        if isinstance(md, dict) and md.get('chert_warm'): source += ' (warm job: next-call not consumed)'
+            a, source = _brodia_fallback(a)
+            if why: source += f' (next-call: {why})'
+            if md.get('chert_warm'): source += ' (warm job: next-call not consumed)'
     picked = f'{a.brodia_scenario} + {a.brodia_receptivity}' if getattr(a, 'brodia_scenario', None) else 'none'
     print(f'[brodia] persona {picked} from {source}', flush=True)
     return a, source

@@ -14,7 +14,7 @@ from facetime import next_call, worker
 
 
 def fresh_args(*flags):
-    return worker.resolve_mode(worker.build_parser().parse_args(['--voice', 'off', *flags]))
+    return worker.resolve_mode(worker.build_parser().parse_args(['--voice', 'off', '--agent-name', 'brodia', *flags]))
 
 
 def _race(path, q):
@@ -62,37 +62,56 @@ def main():
     Path(path).write_text('{not json'); record, why = next_call.consume(); assert record is None and 'unreadable' in why
     print('invalid selections rejected: PASS')
 
-    # worker priority: warm never consumes, explicit browser metadata wins, Chert caller consumes once
-    next_call.store('park', 'neutral', ttl=120)
+    # worker priority: warm never consumes, explicit browser metadata wins, Chert caller consumes once,
+    # and a brodia agent never falls back to the fitness coach (default Brodia persona instead)
+    cfg = lambda a: (a.brodia_scenario, a.brodia_receptivity)
+    default = worker.DEFAULT_BRODIA
+    next_call.store('street', 'neutral', ttl=120)
     a, src = worker.select_brodia(fresh_args(), {'chert_warm': True})
-    assert not a.brodia_scenario and 'warm' in src and next_call.status()['pending'], 'warm job consumed the selection'
+    assert cfg(a) == default and 'warm' in src and next_call.status()['pending'], 'warm job consumed the selection'
     a, src = worker.select_brodia(fresh_args(), {'chert_call': 'x', 'brodia': {'scenario': 'barista', 'receptivity': 'interested'}})
-    assert (a.brodia_scenario, a.brodia_receptivity) == ('barista', 'interested') and src == 'browser dispatch metadata'
+    assert cfg(a) == ('barista', 'interested') and src == 'browser dispatch metadata'
     assert next_call.status()['pending'], 'explicit dispatch consumed the selection'
+    a, src = worker.select_brodia(fresh_args('--brodia-scenario', 'park', '--brodia-receptivity', 'uninterested'), {'brodia': {'scenario': 'barista', 'receptivity': 'neutral'}})
+    assert cfg(a) == ('barista', 'neutral'), 'explicit metadata must win over flags'
     a, src = worker.select_brodia(fresh_args(), {})
-    assert not a.brodia_scenario and next_call.status()['pending'], 'non-Chert job consumed the selection'
-    a, src = worker.select_brodia(fresh_args('--brodia-scenario', 'street', '--brodia-receptivity', 'interested'), {'chert_call': 'call-1'})
-    assert (a.brodia_scenario, a.brodia_receptivity) == ('park', 'neutral') and 'next-call selection' in src
-    assert a.perception == 'off' and a.handlers == 'none' and worker.brodia_persona(a)
-    a, src = worker.select_brodia(fresh_args('--brodia-scenario', 'street', '--brodia-receptivity', 'interested'), {'chert_call': 'call-2'})
-    assert (a.brodia_scenario, a.brodia_receptivity) == ('street', 'interested') and src.startswith('worker flags') and 'no pending' in src
+    assert cfg(a) == default and next_call.status()['pending'], 'non-Chert job consumed the selection'
+    a, src = worker.select_brodia(fresh_args('--brodia-scenario', 'park', '--brodia-receptivity', 'interested'), {'chert_call': 'call-1'})
+    assert cfg(a) == ('street', 'neutral') and 'next-call selection' in src
+    assert a.perception == 'off' and a.handlers == 'none' and a.plan is None and worker.brodia_persona(a)
+    a, src = worker.select_brodia(fresh_args('--brodia-scenario', 'park', '--brodia-receptivity', 'interested'), {'chert_call': 'call-2'})
+    assert cfg(a) == ('park', 'interested') and src.startswith('worker flags') and 'no pending' in src
     a, src = worker.select_brodia(fresh_args(), {'chert_call': 'call-3'})
-    assert not a.brodia_scenario and src.startswith('default')
+    assert cfg(a) == default and src.startswith('Brodia default') and a.plan is None and a.plan_text is None and a.handlers == 'none'
     # the issue's sequence: Barista+Interested for one call, Street+Uninterested for the next, no leakage
     for scen, rec, call in (('barista', 'interested', 'A'), ('street', 'uninterested', 'B')):
         next_call.store(scen, rec, ttl=120)
         a, _ = worker.select_brodia(fresh_args(), {'chert_call': call})
-        assert (a.brodia_scenario, a.brodia_receptivity) == (scen, rec)
-    a, _ = worker.select_brodia(fresh_args(), {'chert_call': 'C'}); assert not a.brodia_scenario, 'stale selection leaked'
-    next_call.store('park', 'neutral', ttl=120)
+        assert cfg(a) == (scen, rec)
+    a, _ = worker.select_brodia(fresh_args(), {'chert_call': 'C'}); assert cfg(a) == default, 'stale selection leaked'
+    next_call.store('street', 'interested', ttl=120)
     os.environ['BRODIA_NEXT_CALL'] = '0'
-    a, _ = worker.select_brodia(fresh_args(), {'chert_call': 'x'}); assert not a.brodia_scenario and next_call.status()['pending']
+    a, _ = worker.select_brodia(fresh_args(), {'chert_call': 'x'}); assert cfg(a) == default and next_call.status()['pending']
     del os.environ['BRODIA_NEXT_CALL']
     os.environ['BRODIA_NEXT_CALL_ANY_JOB'] = '1'
-    a, _ = worker.select_brodia(fresh_args(), {'chert_warm': True}); assert not a.brodia_scenario, 'warm consumed with ANY_JOB'
-    a, _ = worker.select_brodia(fresh_args(), {}); assert a.brodia_scenario == 'park', 'ANY_JOB escape hatch'
+    a, _ = worker.select_brodia(fresh_args(), {'chert_warm': True}); assert cfg(a) == default, 'warm consumed with ANY_JOB'
+    a, _ = worker.select_brodia(fresh_args(), {}); assert cfg(a) == ('street', 'interested'), 'ANY_JOB escape hatch'
     del os.environ['BRODIA_NEXT_CALL_ANY_JOB']
-    print('worker: warm skip, explicit metadata wins, consume once, flags fallback, no leakage: PASS')
+    # invalid explicit metadata: logged and ignored, never a crash; falls through to next-call / default
+    for bad in ('x', None, [], 7, {'scenario': 'club', 'receptivity': 'neutral'}, {'scenario': 'park'}):
+        a, src = worker.select_brodia(fresh_args(), {'brodia': bad}); assert cfg(a) == default, bad
+        assert worker.dispatch_config({'brodia': bad}) is None
+        a = worker.apply_brodia_dispatch(fresh_args(), {'brodia': bad}); assert cfg(a) == default, bad
+    next_call.store('barista', 'uninterested', ttl=120)
+    a, src = worker.select_brodia(fresh_args(), {'chert_call': 'x', 'brodia': 'x'}); assert cfg(a) == ('barista', 'uninterested')
+    a, src = worker.select_brodia(fresh_args(), 'not-a-dict'); assert cfg(a) == default
+    # a non-brodia agent (local starter rooms: --agent-name "") keeps the starter coach unless configured
+    a, src = worker.select_brodia(fresh_args('--agent-name', ''), {}); assert a.brodia_scenario is None and src.startswith('starter coach')
+    # tests never use the real data/tmp path, even without BRODIA_NEXT_CALL_PATH
+    saved = os.environ.pop('BRODIA_NEXT_CALL_PATH')
+    assert 'data/tmp' not in str(next_call.state_path()) and 'brodia-test-' in str(next_call.state_path())
+    os.environ['BRODIA_NEXT_CALL_PATH'] = saved
+    print('worker: warm skip, explicit metadata wins, consume once, flags/default fallback (never fitness), invalid metadata safe, no leakage: PASS')
 
     # concurrency: many processes race to consume one selection -> exactly one wins
     ctx = multiprocessing.get_context('fork')
@@ -141,9 +160,24 @@ def main():
             assert call('POST', ['park'])[0] == 400
             assert call('GET')[1]['scenario'] == 'park', 'invalid POST replaced the pending selection'
             assert call('DELETE') == (200, {'cleared': True}) and call('GET') == (200, {'pending': False})
+            for body in ([], None, 'x', 3):
+                assert call('POST', body)[0] == 400, body
+            def raw(headers, data=b'{"scenario": "park", "receptivity": "neutral"}', method='POST'):
+                req = urllib.request.Request(base, method=method, data=data, headers=headers)
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as r: return r.status
+                except urllib.error.HTTPError as e: return e.code
+            assert raw({'Content-Type': 'text/plain'}) == 415
+            assert raw({'Content-Type': 'application/x-www-form-urlencoded'}) == 415
+            assert raw({'Content-Type': 'application/json', 'Host': 'evil.example:8080'}) == 403
+            assert raw({'Content-Type': 'application/json', 'Host': 'evil.example:8080'}, data=None, method='DELETE') == 403
+            assert raw({'Content-Type': 'application/json'}, data=b'{"a": "' + b'x' * 5000 + b'"}') == 413
+            assert raw({'Content-Type': 'application/json; charset=utf-8'}) == 201
+            assert raw({'Content-Type': 'application/json', 'Host': f'localhost:{srv.server_address[1]}'}) == 201
+            assert call('GET')[1]['pending']; call('DELETE')
     finally:
         srv.shutdown(); srv.server_close()
-    print('HTTP /api/next-call POST/GET/DELETE, invalid -> 400: PASS')
+    print('HTTP /api/next-call POST/GET/DELETE; invalid/non-object -> 400, bad Host 403, bad type 415, >4 KB 413: PASS')
     print('Brodia next-call (P13 demo-only fallback): PASS')
 
 

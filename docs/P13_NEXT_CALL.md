@@ -33,7 +33,10 @@ once. It is not a scalable or multi-user design, so do not present it as one.
      selection is not touched.
   2. A real Chert caller job (metadata has `chert_call` and does not have
      `chert_warm`) consumes the pending selection if it has not expired.
-  3. Otherwise the `--brodia-scenario/--brodia-receptivity` flags, or the default.
+  3. Otherwise the `--brodia-scenario/--brodia-receptivity` flags.
+  4. Otherwise, for a `brodia*` agent, the default Brodia persona (Park + Neutral).
+     It never falls back to the starter fitness coach. Invalid `brodia` metadata
+     (not an object, or bad values) is logged and ignored; it never crashes the job.
 
   Warm and doctor jobs (`chert_warm`) never consume it. Every job logs one line:
   `[brodia] persona <scenario> + <receptivity> from <source>`.
@@ -54,9 +57,13 @@ once. It is not a scalable or multi-user design, so do not present it as one.
 node scripts/test_brodia_browser.cjs                # button POST + honest copy, plus the 9 browser-call variants
 ```
 
-Note: any offline test that runs a worker job with `chert_call` metadata consumes a
-real pending `data/tmp/brodia_next_call.json`. Do not run tests between clicking
-the button and placing the call.
+Tests never touch the real `data/tmp/brodia_next_call.json`. Each test script sets
+`BRODIA_NEXT_CALL_PATH` to a temp file. `next_call.state_path()` also uses a
+private temp file for any `test_*` script or pytest run that did not set it.
+
+Selector POST endpoints accept only a local `Host` (`127.0.0.1:<port>` or
+`localhost:<port>`), `Content-Type: application/json`, and a JSON object body
+of 4 KB or less. Otherwise they return 403, 415, 400 or 413.
 
 ## Live test steps (⚠️ unverified; run on the laptop with `.env.local`)
 
@@ -77,7 +84,7 @@ the button and placing the call.
    Say hello and confirm a barista who is receptive.
 7. Hang up and call again **without clicking**. The log must say
    `... from worker flags (next-call: no pending selection)` or
-   `default (no Brodia config) (next-call: no pending selection)`.
+   `Brodia default (next-call: no pending selection)` (Park + Neutral).
    It must NOT say barista + interested again.
 8. Issue sequence: click **Street + Uninterested**, call, and confirm street +
    uninterested is used, with no stale barista selection.

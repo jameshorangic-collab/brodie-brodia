@@ -13,6 +13,7 @@ The selector and the worker are separate processes on the same laptop, so the st
 import json
 import os
 import secrets
+import sys
 import time
 from pathlib import Path
 
@@ -22,8 +23,20 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TTL_S = 120.0
 
 
+_TEST_PATH = None
+
+
 def state_path():
-    return Path(os.environ.get('BRODIA_NEXT_CALL_PATH') or ROOT / 'data' / 'tmp' / 'brodia_next_call.json')
+    """BRODIA_NEXT_CALL_PATH, else data/tmp/brodia_next_call.json; a test process (scripts/test_*.py, pytest) that did not
+    set the env var gets a private temp file so it can never consume a real pending selection."""
+    global _TEST_PATH
+    if os.environ.get('BRODIA_NEXT_CALL_PATH'): return Path(os.environ['BRODIA_NEXT_CALL_PATH'])
+    if os.path.basename(sys.argv[0] if sys.argv else '').startswith('test_') or 'pytest' in sys.modules:
+        if _TEST_PATH is None:
+            import tempfile
+            _TEST_PATH = Path(tempfile.mkdtemp(prefix='brodia-test-')) / 'brodia_next_call.json'
+        return _TEST_PATH
+    return ROOT / 'data' / 'tmp' / 'brodia_next_call.json'
 
 
 def ttl_s():
