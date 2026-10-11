@@ -77,4 +77,6 @@ PNG delivered 174 decoded video frames at 15 FPS, 263 audible audio frames, two
 blinks, all three amplitude mouth shapes, and immediate mouth closure after speech.
 Rendering averaged 0.93 ms. During the admitted FaceTime test, a separate audio
 subscriber measured audible `facetime-caller` input and Gemini `coach-audio` output.
-The iPhone display and speaker result requires the caller's confirmation.
+The caller confirmed that Gemini voice and the supplied female avatar with a
+moving mouth both reached the iPhone over FaceTime on 2026-10-11. The call was
+left running after verification.
