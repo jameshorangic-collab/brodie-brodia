@@ -560,11 +560,11 @@ class VoiceLayer:
     """One per job: consumes job.events, runs the Floor, feeds SetSummary context at openings, dispatches to the handlers, and
     logs model turns. job must have .events (asyncio.Queue), .player (CuePlayer or None), .emit_voice(role, text). model=None
     runs the handlers alone (ask_voice then only queues and warns)."""
-    def __init__(self, job, model=None, plan=None, handlers=None, window_s=WINDOW_S, probe=True, now=time.monotonic, floor_open=False, vision=None):
+    def __init__(self, job, model=None, plan=None, handlers=None, window_s=WINDOW_S, probe=True, now=time.monotonic, floor_open=False, vision=None, feedback=None):
         """probe=False (the worker without --latency-probe): a probe event opens no floor window (it is still logged).
         floor_open=True (--floor open): the Floor is always open (no set ever cuts the voice; asks fire at once).
         vision: a VideoTee (--vision) handed to the model session at start and enabled once the session is up."""
-        self.job = job; self.model = model; self.handlers = handlers; self.vision = vision
+        self.job = job; self.model = model; self.handlers = handlers; self.vision = vision; self.feedback = feedback
         self.floor = Floor(model, window_s=window_s, probe=probe, now=now, always_open=floor_open) if model is not None else None
         self.summary = SetSummary(plan); self.mix = None; self.sink = None; self.started = False; self.n_events = 0; self.n_context = 0
         self.pending_context = []; self._warned_no_model = False
@@ -619,6 +619,7 @@ class VoiceLayer:
         gesture or probe that opened the floor), then the handlers. The rest/done summary runs whether or not a model is attached
         (it closes the set in the bookkeeping) and is sent as context only when there is one."""
         self.n_events += 1
+        feedback_prompt = self.feedback.observe(ev) if self.feedback is not None else None
         self.summary.on_event(ev)
         change = self.floor.on_event(ev) if self.floor is not None else None
         t = ev['type']
@@ -631,6 +632,9 @@ class VoiceLayer:
         if self.handlers is not None:
             try: self.handlers(ev, self.say_now, self.ask_voice)
             except Exception as e: log.warning('handler failed on %s: %r', ev.get('type'), e)
+        if feedback_prompt:
+            print('[brodia] roleplay ended; generating grounded feedback', flush=True)
+            self.ask_voice(feedback_prompt)
 
     def _context(self, text):
         self.n_context += 1

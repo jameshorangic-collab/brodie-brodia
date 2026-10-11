@@ -602,7 +602,11 @@ class CoachJob:
         if model is None and handlers is None: return None
         floor_open = getattr(a, 'floor', None) == 'open'
         if floor_open and not self.voice_mode: print('[voice] --floor open with perception on: the voice is never cut by a set (it will talk over the counts)', flush=True)
-        v = VoiceLayer(self, model=model, plan=a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision)
+        feedback = None
+        if a.brodia_scenario:
+            from facetime.brodia import FeedbackSession
+            feedback = FeedbackSession()
+        v = VoiceLayer(self, model=model, plan=a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision, feedback=feedback)
         if model is not None:
             v.attach()
             print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {a.persona} ({len(model.persona)} chars'
