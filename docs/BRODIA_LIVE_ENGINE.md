@@ -50,6 +50,14 @@ Thinking models are rejected because they do not support blocking calls.
 
 Gemini is instructed to call the tool for every contact/date/meet-again/continue
 request, and `record_social_boundary` before another explicit refusal or exit.
+Phone, Instagram, IG, Insta, digits, socials and exchanging handles all map to
+the same `contact` outcome. A respectful request at work is `appropriate=true`:
+Python already applies the scene and receptivity modifiers. `appropriate=false`
+is reserved for pressure, harassment, unsafe requests or an explicit boundary.
+Recording a boundary before deciding a new request would force rejection, so the
+prompt and tool descriptions explicitly prohibit that order. Tool diagnostics
+count invocations, inappropriate/unclear flags and returned accepts/declines;
+decision logs contain enums and flags only, never transcripts or contact details.
 Native Live does not support forcing a named/required tool choice. Thus blocking
 is guaranteed **once a call is made**, not a mathematical guarantee that the model
 will classify every request or never skip a call. Python never rerolls a resolved
@@ -91,9 +99,33 @@ A decision and random draw are atomic with no await. Accepted decisions are
 cached; refusals permanently block rerolls, including date/meet-again synonyms.
 Later explicit boundaries override earlier acceptance. Uncertain requests clarify
 without a draw; inappropriate requests decline without a draw. All agreements are
-fictional; contact uses only `brodia@example.invalid`, never a real number.
+fictional; accepted contact is acted out naturally ("Yeah, sure! Give me yours.")
+without dictating a number or handle. `brodia@example.invalid` is only a fallback
+for an explicitly requested fictional email, not a substitute for phone or IG.
 Respectful exits can score positively but stop new outcomes and trigger existing
 grounded feedback once. Positive rapport never cancels an explicit refusal.
+
+## Conversation and personality
+
+At controller creation, one of Playful, Refined, Sassy, Bold/flirty, Shy or Bubbly
+is selected once, independently of receptivity and the outcome RNG. Its initiative,
+flirtiness, playfulness, warmth and speaking style remain stable across instruction
+refreshes. Rapport changes how receptive that personality is; a shy interested
+character is still shy, and an uninterested bold character still respects rejection.
+
+Interested characters frequently reciprocate curiosity, occasionally offer a topic
+and enjoy appropriate banter. Neutral characters are friendly with less initiative;
+uninterested characters use brief replies and can leave. Replies stay short, vary
+questions with reactions and self-disclosures, and avoid assistant/therapy language
+and AI disclaimers in harmless roleplay.
+
+The existing in-memory history supplies the last 12 turns to instruction refreshes,
+plus the first four caller turns so early names and topics survive history rollover.
+This is explicitly labeled untrusted dialogue, not instructions. Native Live session
+history remains in use. No additional model call is added to the response path;
+the existing evaluator still runs in the background, and decisions remain local.
+For the reproduced contact failure and live quality checks, see
+[BRODIA_CONVERSATION_QUALITY.md](BRODIA_CONVERSATION_QUALITY.md).
 
 ## Audio and privacy
 
@@ -228,6 +260,7 @@ Offline checks:
 
 ```bash
 .venv/bin/python scripts/test_brodia_live_engine.py
+.venv/bin/python scripts/test_brodia_conversation_quality.py
 .venv/bin/python scripts/test_brodia_gemini.py
 .venv/bin/python scripts/test_brodia_config.py
 .venv/bin/python scripts/test_brodia_feedback.py
