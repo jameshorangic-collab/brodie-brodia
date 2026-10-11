@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Load .env.local and run the coach, browser selector, or mint a phone link.
-#   bash scripts/run.sh coach [gemini|openai|off] [worker flags...]   # voice defaults to VOICE or Gemini
+#   bash scripts/run.sh coach [gemini|openai|off] [worker flags...]   # voice defaults to VOICE or Gemini; add --mirror for the pose-mirror video track
 #   bash scripts/run.sh selector                                      # serves the browser call UI at http://127.0.0.1:8080
 #   bash scripts/run.sh link [room]                                   # room defaults to try-<time>
 #   bash scripts/run.sh facetime [scenario] [receptivity]             # real FaceTime via the open-source connector (worker: LINE=1)
