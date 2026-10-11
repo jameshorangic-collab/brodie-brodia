@@ -79,8 +79,9 @@ function Review() {
   return (
     <section className="after">
       <div>
+        <img className="coach" src="/avatars/brodie-coach.png" alt="Coach Brodie in a backwards cap, holding a rose and giving a thumbs up" width="1024" height="1024" />
         <h2>Game review.</h2>
-        <p className="sub">Every line graded. No cap.</p>
+        <p className="sub">Coach Brodie grades every line. No cap.</p>
         <ul className="legend" aria-label="Move grades">
           {['brill', 'inacc', 'great', 'mist', 'best', 'blund'].map((g) => (
             <li key={g}><Glyph grade={g} /><span>{GRADES[g].name}{g === 'blund' && <small> · ignoring a no</small>}</span></li>

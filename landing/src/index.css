@@ -195,6 +195,10 @@ h2 { font: 800 clamp(2.25rem, 5vw, 3.5rem)/.95 var(--display); letter-spacing: -
 
 footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; padding-block: 28px 40px; border-top: 1px solid var(--line); font-size: .875rem; color: var(--muted); }
 
+/* coach Brodie */
+.coach { display: block; width: clamp(140px, 22vw, 210px); height: auto; margin: 0 0 8px -12px; }
+.done img { width: 72px; height: auto; }
+
 /* waitlist */
 .waitlist { display: grid; justify-items: start; gap: 0; padding-block: clamp(48px, 8vw, 96px); border-top: 1px solid var(--line); }
 .waitlist .sub { color: var(--muted); margin: 0 0 24px; }
