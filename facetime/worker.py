@@ -55,7 +55,7 @@ Run:
   .venv/bin/python -m facetime.worker --voice gemini dev                                                         # GEMINI_API_KEY in env
 The flags before the LiveKit subcommand are ours; `dev`, `start`, `connect`, `download-files` and their options are the LiveKit Agents CLI's.
 """
-import argparse, asyncio, collections, json, logging, os, sys, threading, time
+import argparse, asyncio, collections, copy, json, logging, os, sys, threading, time
 from livekit import rtc
 from livekit.agents import AutoSubscribe, JobContext, JobProcess, WorkerOptions, cli
 from facetime import DATA, AUDIO_TRACK_NAME
@@ -88,7 +88,7 @@ def build_parser():
                                         'after a code change, livekit-agents 1.8.5 has no hot reload), start (production), connect --room R (join one room directly), '
                                         'download-files. The arms-up latency probe is off unless --latency-probe (env RTCOACH_LATENCY_PROBE=1) and never acts during '
                                         'an active set. Env: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, AGENT_NAME, PLAN, EVENTS_ONLY, RTCOACH_EVENT_LOG, '
-                                        'RTCOACH_CUE_LOG, RTCOACH_LATENCY_PROBE, GEMINI_API_KEY, GEMINI_LIVE_MODEL, GEMINI_VOICE.')
+                                        'RTCOACH_CUE_LOG, RTCOACH_LATENCY_PROBE, GEMINI_API_KEY, GEMINI_LIVE_MODEL, GEMINI_VOICE, OPENAI_API_KEY.')
     add_arguments(ap)
     for act in ap._actions:                                                 # the perception flag, with the worker's default (env) and what the worker does with it
         if act.dest == 'latency_probe':
@@ -108,9 +108,9 @@ def build_parser():
     ap.add_argument('--video-quality', default='low', choices=['low', 'medium', 'high', 'none'], help='simulcast layer to request when the publisher simulcasts')
     ap.add_argument('--max-s', type=float, default=None, help='leave the room this long after the first video frame (default: stay until the room closes)')
     ap.add_argument('--idle-processes', type=int, default=int(os.environ.get('RTCOACH_IDLE_PROCS', '1')), help='preloaded job processes kept ready (models loaded in prewarm)')
-    ap.add_argument('--voice', default=os.environ.get('VOICE', 'gemini'), choices=['off', 'gemini'], help='conversational layer: Gemini Live through the cue track (default; env VOICE)')
-    ap.add_argument('--voice-model', default=None, help='Gemini Live model id (GEMINI_LIVE_MODEL when omitted)')
-    ap.add_argument('--voice-name', default=None, help='Gemini voice (GEMINI_VOICE when omitted; default Puck)')
+    ap.add_argument('--voice', default=os.environ.get('VOICE', 'gemini'), choices=['off', 'gemini', 'openai'], help='conversational layer: Gemini Live by default, or OpenAI Realtime fallback, through the cue track (env VOICE)')
+    ap.add_argument('--voice-model', default=None, help='model id (GEMINI_LIVE_MODEL for Gemini; OPENAI_REALTIME_MODEL for OpenAI)')
+    ap.add_argument('--voice-name', default=None, help='voice (GEMINI_VOICE, default Puck; OPENAI_VOICE with --voice openai)')
     ap.add_argument('--persona', default=os.environ.get('PERSONA_FILE', os.path.join(STARTER_DIR, 'persona.md')), help='the voice persona prompt file (starter/persona.md)')
     ap.add_argument('--handlers', default=os.environ.get('HANDLERS_FILE') or None, help='a module with on_event(event, say_now, ask_voice); default starter/handlers.py whenever that file exists, in every mode '
                                                                                         '(without a realtime voice provider, ask_voice returns None); --handlers none loads nothing')
@@ -201,6 +201,41 @@ def parse_metadata(md):
         return {'metadata_raw': md[:200]}
 
 
+def configure_brodia_session(a, config):
+    """Make a dispatched Brodia job roleplay-only, never the starter fitness coach.
+
+    The cue player's audio track remains the LiveKit output transport, but the
+    fitness plan, persona, and starter handlers are deliberately unavailable.
+    """
+    a.brodia_scenario, a.brodia_receptivity = config.scenario, config.receptivity
+    a.perception = 'off'; a.floor = 'open'
+    a.plan = None; a.plan_text = None; a.exercise = None; a.auto = False
+    a.handlers = 'none'
+    return a
+
+
+def apply_brodia_dispatch(a, metadata):
+    """Validate browser dispatch metadata and specialize this one job's args."""
+    selected = (metadata.get('brodia') or {}) if isinstance(metadata, dict) else {}
+    if selected:
+        if getattr(a, 'brodia_scenario', None) and (a.brodia_scenario != selected.get('scenario') or a.brodia_receptivity != selected.get('receptivity')):
+            raise ValueError('dispatch Brodia configuration conflicts with worker flags')
+        from facetime.brodia import RoleplayConfig
+        return configure_brodia_session(a, RoleplayConfig(selected.get('scenario'), selected.get('receptivity')))
+    if getattr(a, 'brodia_scenario', None):
+        from facetime.brodia import RoleplayConfig
+        return configure_brodia_session(a, RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
+    return a
+
+
+def brodia_persona(a):
+    """The only system instruction source for a configured Brodia session."""
+    if not getattr(a, 'brodia_scenario', None):
+        return None
+    from facetime.brodia import RoleplayConfig, build_prompt
+    return build_prompt(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
+
+
 def prewarm(proc: JobProcess):
     """Runs in each job process before any job: models, trigger, thresholds and (unless events-only) the cue bank."""
     a = load_args(); cfg = Config.from_args(a); t = time.time()
@@ -228,16 +263,12 @@ def describe_mode(a):
 
 async def entrypoint(ctx: JobContext):
     ud = ctx.proc.userdata
-    a = ud.get('args') or load_args(); md = parse_metadata(ctx.job.metadata)
-    selected = (md.get('brodia') or {}) if isinstance(md, dict) else {}
-    if selected:
-        if getattr(a, 'brodia_scenario', None) and (a.brodia_scenario != selected.get('scenario') or a.brodia_receptivity != selected.get('receptivity')):
-            raise ValueError('dispatch Brodia configuration conflicts with worker flags')
-        from facetime.brodia import RoleplayConfig
-        config = RoleplayConfig(selected.get('scenario'), selected.get('receptivity'))
-        a.brodia_scenario, a.brodia_receptivity = config.scenario, config.receptivity
-    cfg = ud.get('cfg') or Config.from_args(a)
+    a = copy.deepcopy(ud.get('args') or load_args()); md = parse_metadata(ctx.job.metadata)
+    a = apply_brodia_dispatch(a, md)
+    cfg = Config.from_args(a)
     pipe = ud.pop('pipe', None)
+    if a.brodia_scenario:
+        pipe = None
     if pipe is None and not perception_off(a): pipe = build_pipeline(cfg)   # single use: a Perception owns it until the job ends
     bank = ud.get('bank')
     if bank is None and not a.events_only:
@@ -586,27 +617,33 @@ class CoachJob:
     def build_voice(self):
         """The realtime voice layer (session started on bind, never on a warm job) and the mixer input on the
         cue player; --handlers alone: the handlers with say_now only. Returns None (with a message) when the layer cannot run."""
-        from facetime.voice import VoiceLayer, GeminiModel, VideoTee, load_handlers, read_text, DEFAULT_PERSONA
+        from facetime.voice import VoiceLayer, GeminiModel, OpenAIModel, VideoTee, load_handlers, read_text, DEFAULT_PERSONA
         a = self.a; model = None
-        if a.voice == 'gemini':
-            key_env = 'GEMINI_API_KEY'
+        is_brodia = bool(a.brodia_scenario)
+        if a.voice in ('gemini', 'openai'):
+            key_env = 'GEMINI_API_KEY' if a.voice == 'gemini' else 'OPENAI_API_KEY'
             if self.player is None:
                 print(f'[voice] --voice {a.voice} needs the cue player track (not --events-only): the model speaks through that one AudioSource; voice OFF', flush=True)
             elif not (os.environ.get(key_env) or (a.voice == 'gemini' and os.environ.get('GOOGLE_API_KEY'))):
                 print(f'[voice] {key_env} is MISSING: voice OFF', flush=True)
             else:
-                persona = read_text(a.persona, DEFAULT_PERSONA)
-                if a.brodia_scenario:
-                    from facetime.brodia import RoleplayConfig, build_prompt
-                    persona += '\n\n' + build_prompt(RoleplayConfig(a.brodia_scenario, a.brodia_receptivity))
-                if a.plan: plan_line = f'\n\nFor your own reference only, never to be read aloud: the session plan, in order, is {a.plan}.'
-                elif getattr(a, 'plan_text', None): plan_line = '\n\nThe plan you are coaching, step by step (follow it in order, one step at a time; never read it aloud):\n' + a.plan_text
+                if is_brodia:
+                    # This is the sole system persona for a Brodia session.  Do
+                    # not append starter/persona.md or a fitness plan here.
+                    persona = brodia_persona(a)
+                    plan_line = ''
                 else: plan_line = ''
-                model = GeminiModel(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice)
+                if not is_brodia:
+                    persona = read_text(a.persona, DEFAULT_PERSONA)
+                    if a.plan: plan_line = f'\n\nFor your own reference only, never to be read aloud: the session plan, in order, is {a.plan}.'
+                    elif getattr(a, 'plan_text', None): plan_line = '\n\nThe plan you are coaching, step by step (follow it in order, one step at a time; never read it aloud):\n' + a.plan_text
+                model_cls = GeminiModel if a.voice == 'gemini' else OpenAIModel
+                model = model_cls(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice)
         if getattr(a, 'vision', False):
-            if model is None: print('[vision] --vision needs --voice gemini with a model session: no video is forwarded', flush=True)
+            if model is None: print('[vision] --vision needs --voice gemini or openai with a model session: no video is forwarded', flush=True)
             else: self.vision = VideoTee(fps=a.vision_fps)
-        hpath = handlers_path(a); handlers = load_handlers(hpath) if hpath else None
+        hpath = None if is_brodia else handlers_path(a)
+        handlers = load_handlers(hpath) if hpath else None
         if model is None and handlers is None: return None
         floor_open = getattr(a, 'floor', None) == 'open'
         if floor_open and not self.voice_mode: print('[voice] --floor open with perception on: the voice is never cut by a set (it will talk over the counts)', flush=True)
@@ -614,10 +651,11 @@ class CoachJob:
         if a.brodia_scenario:
             from facetime.brodia import FeedbackSession
             feedback = FeedbackSession()
-        v = VoiceLayer(self, model=model, plan=a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision, feedback=feedback)
+        v = VoiceLayer(self, model=model, plan=None if is_brodia else a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision, feedback=feedback)
         if model is not None:
             v.attach()
-            print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {a.persona} ({len(model.persona)} chars'
+            persona_source = 'facetime.brodia.build_prompt' if is_brodia else a.persona
+            print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {persona_source} ({len(model.persona)} chars'
                   + (f', plan text {len(a.plan_text)} chars from {a.plan_file}' if getattr(a, 'plan_text', None) else '') + f'); '
                   f'handlers {hpath or "none"}; mixer on the cue track (duck {20 * __import__("math").log10(self.player.mix.duck):.0f} dB); '
                   f'floor {"ALWAYS OPEN" if floor_open else "gated to the gaps between sets"}; probe window {"on" if v.floor.probe else "off"}; '
