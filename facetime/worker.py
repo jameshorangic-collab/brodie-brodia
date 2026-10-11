@@ -108,9 +108,9 @@ def build_parser():
     ap.add_argument('--video-quality', default='low', choices=['low', 'medium', 'high', 'none'], help='simulcast layer to request when the publisher simulcasts')
     ap.add_argument('--max-s', type=float, default=None, help='leave the room this long after the first video frame (default: stay until the room closes)')
     ap.add_argument('--idle-processes', type=int, default=int(os.environ.get('RTCOACH_IDLE_PROCS', '1')), help='preloaded job processes kept ready (models loaded in prewarm)')
-    ap.add_argument('--voice', default=os.environ.get('VOICE', 'off'), choices=['off', 'gemini'], help='conversational layer between sets: gemini = Gemini Live through the cue track (facetime/voice.py; env VOICE)')
-    ap.add_argument('--voice-model', default=os.environ.get('GEMINI_LIVE_MODEL') or None, help='Gemini Live model id (env GEMINI_LIVE_MODEL; default facetime.voice.DEFAULT_MODEL)')
-    ap.add_argument('--voice-name', default=os.environ.get('GEMINI_VOICE', 'Puck'), help='Gemini Live voice (env GEMINI_VOICE; Puck is the cue bank voice)')
+    ap.add_argument('--voice', default=os.environ.get('VOICE', 'off'), choices=['off', 'gemini', 'openai'], help='conversational layer between sets: gemini = Gemini Live, openai = OpenAI Realtime, through the cue track (facetime/voice.py; env VOICE)')
+    ap.add_argument('--voice-model', default=os.environ.get('GEMINI_LIVE_MODEL') or None, help='realtime model id (env GEMINI_LIVE_MODEL; default facetime.voice.DEFAULT_MODEL, or OPENAI_DEFAULT_MODEL with --voice openai)')
+    ap.add_argument('--voice-name', default=None, help='realtime voice (env GEMINI_VOICE, default Puck, the cue bank voice; env OPENAI_VOICE with --voice openai)')
     ap.add_argument('--persona', default=os.environ.get('PERSONA_FILE', os.path.join(STARTER_DIR, 'persona.md')), help='the voice persona prompt file (starter/persona.md)')
     ap.add_argument('--handlers', default=os.environ.get('HANDLERS_FILE') or None, help='a module with on_event(event, say_now, ask_voice); default starter/handlers.py whenever that file exists, in every mode '
                                                                                         '(without --voice gemini, ask_voice returns None); --handlers none loads nothing')
@@ -257,7 +257,7 @@ class CoachJob:
             from facetime.audio_out import CuePlayer
             self.player = CuePlayer(bank=self.bank, on_record=self.log_cue, queue_ms=a.audio_queue_ms)
             os.makedirs(os.path.dirname(os.path.abspath(a.cue_log)) or '.', exist_ok=True); self.cue_log = open(a.cue_log, 'a')
-        if getattr(a, 'voice', 'off') == 'gemini' or handlers_path(a):
+        if getattr(a, 'voice', 'off') != 'off' or handlers_path(a):
             self.voice = self.build_voice()
         self.room.on('track_subscribed', self.on_track_subscribed)
         self.room.on('participant_connected', lambda p: print(f'[worker] participant joined: {p.identity} (kind {rtc.ParticipantKind.Name(p.kind)})', flush=True))
@@ -566,21 +566,22 @@ class CoachJob:
     def build_voice(self):
         """--voice gemini: the VoiceLayer with a GeminiModel (session started on bind, never on a warm job) and the mixer input on the
         cue player; --handlers alone: the handlers with say_now only. Returns None (with a message) when the layer cannot run."""
-        from facetime.voice import VoiceLayer, GeminiModel, VideoTee, load_handlers, read_text, DEFAULT_PERSONA
+        from facetime.voice import VoiceLayer, GeminiModel, OpenAIModel, VideoTee, load_handlers, read_text, DEFAULT_PERSONA
         a = self.a; model = None
-        if a.voice == 'gemini':
+        if a.voice in ('gemini', 'openai'):
+            key_env = 'OPENAI_API_KEY' if a.voice == 'openai' else 'GEMINI_API_KEY'
             if self.player is None:
-                print('[voice] --voice gemini needs the cue player track (not --events-only): the model speaks through that one AudioSource; voice OFF', flush=True)
-            elif not (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')):
-                print('[voice] GEMINI_API_KEY is MISSING: voice OFF', flush=True)
+                print(f'[voice] --voice {a.voice} needs the cue player track (not --events-only): the model speaks through that one AudioSource; voice OFF', flush=True)
+            elif not (os.environ.get(key_env) or (a.voice == 'gemini' and os.environ.get('GOOGLE_API_KEY'))):
+                print(f'[voice] {key_env} is MISSING: voice OFF', flush=True)
             else:
                 persona = read_text(a.persona, DEFAULT_PERSONA)
                 if a.plan: plan_line = f'\n\nFor your own reference only, never to be read aloud: the session plan, in order, is {a.plan}.'
                 elif getattr(a, 'plan_text', None): plan_line = '\n\nThe plan you are coaching, step by step (follow it in order, one step at a time; never read it aloud):\n' + a.plan_text
                 else: plan_line = ''
-                model = GeminiModel(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice)
+                model = (OpenAIModel if a.voice == 'openai' else GeminiModel)(persona + plan_line, model=a.voice_model, voice=a.voice_name, on_turn=self.emit_voice)
         if getattr(a, 'vision', False):
-            if model is None: print('[vision] --vision needs --voice gemini with a model session: no video is forwarded', flush=True)
+            if model is None: print('[vision] --vision needs --voice gemini or openai with a model session: no video is forwarded', flush=True)
             else: self.vision = VideoTee(fps=a.vision_fps)
         hpath = handlers_path(a); handlers = load_handlers(hpath) if hpath else None
         if model is None and handlers is None: return None
@@ -589,7 +590,7 @@ class CoachJob:
         v = VoiceLayer(self, model=model, plan=a.plan, handlers=handlers, probe=bool(getattr(a, 'latency_probe', False)), floor_open=floor_open, vision=self.vision)
         if model is not None:
             v.attach()
-            print(f'[voice] gemini {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {a.persona} ({len(model.persona)} chars'
+            print(f'[voice] {a.voice} {model.model_id} voice {model.voice} language {model.language or "model default"}; persona {a.persona} ({len(model.persona)} chars'
                   + (f', plan text {len(a.plan_text)} chars from {a.plan_file}' if getattr(a, 'plan_text', None) else '') + f'); '
                   f'handlers {hpath or "none"}; mixer on the cue track (duck {20 * __import__("math").log10(self.player.mix.duck):.0f} dB); '
                   f'floor {"ALWAYS OPEN" if floor_open else "gated to the gaps between sets"}; probe window {"on" if v.floor.probe else "off"}; '
@@ -639,10 +640,10 @@ def main(argv=None):
     if rest and rest[0] not in LK_COMMANDS and rest[0].startswith('-'):
         print(f'[worker] unknown flag {rest[0]!r} (our flags go before the LiveKit subcommand: {", ".join(LK_COMMANDS)})', file=sys.stderr); return 2
     os.environ[ARGS_ENV] = json.dumps({k: v for k, v in vars(a).items() if k != 'help'})
-    if a.vision and a.voice != 'gemini':
+    if a.vision and a.voice == 'off':
         print('[worker] --vision only does something with --voice gemini (the video goes to the model session); nothing is forwarded', flush=True)
     print(f'[worker] agent {a.agent_name!r}; mode {describe_mode(a)}; '
-          f'audio {"OFF (events only)" if a.events_only else "cue player"}; voice {a.voice}{" (" + (a.voice_model or "default model") + ", " + a.voice_name + ")" if a.voice != "off" else ""}; '
+          f'audio {"OFF (events only)" if a.events_only else "cue player"}; voice {a.voice}{" (" + (a.voice_model or "default model") + ", " + (a.voice_name or "default voice") + ")" if a.voice != "off" else ""}; '
           f'handlers {a.handlers or "none"}; data channel {"on" if a.publish_data else "off"}; events -> {a.event_log}', flush=True)
     sys.argv = [sys.argv[0]] + rest                           # the LiveKit Agents CLI parses the rest (dev | start | connect | download-files)
     cli.run_app(worker_options(a))
