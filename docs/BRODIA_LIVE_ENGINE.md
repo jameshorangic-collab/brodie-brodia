@@ -119,6 +119,40 @@ Consumer tasks are cancelled and history cleared on close. Optional OpenAI voice
 fallback remains functional with the shared persona/mixer/feedback; the Gemini
 rapport controller is not attached to OpenAI in this change.
 
+## Pose mirror (optional agent video)
+
+`--mirror` (or `BRODIA_MIRROR=1`) makes the worker publish a video track named
+`brodia-mirror` (camera source) next to its audio track. Chert's docs say a FaceTime
+video call expects the agent to publish audio **and** video; without `--mirror` the
+worker is audio-only. The track shows the caller's own newest camera frame,
+mirrored like a selfie, with their live MediaPipe pose skeleton (lite model), the
+scenario label (e.g. "Park · Neutral") and a small "pose preview" tag. There is no
+score, rep count or coaching text. Before any caller video arrives the track shows a
+calm "Waiting for your camera" frame; if the video stalls for 3 s it shows "Camera
+paused". If the pose model is missing or fails, the raw frame is shown.
+
+```bash
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --mirror                 # browser
+LINE=1 bash scripts/run.sh coach gemini --agent-name brodia --perception off --mirror --mirror-fps 8  # lighter
+```
+
+Flags: `--mirror-fps` (default 10, env `BRODIA_MIRROR_FPS`; pose runs at most once per
+output frame, on the newest frame only), `--mirror-shape portrait|landscape` (default
+portrait 540x960 for FaceTime; landscape 960x540; env `BRODIA_MIRROR_SHAPE`). It works with
+`--perception off`, reads the same received frames as `--vision` / `--vision-notes`,
+runs pose and drawing in a worker thread (never on the audio path), and stops when the
+job ends. Measured offline on this laptop CPU: about 15–20 ms per frame (pose lite about 12 ms
+plus drawing and I420 conversion) from a 1280x720 source, so 10 fps uses about 15–20% of one core.
+The browser page shows the agent's video large with your self-view small.
+
+Privacy: mirror frames are processed in memory only. No frame, landmark or composed
+image is written to disk or logged; the composed frame goes only to the caller's own
+room as the agent's video track.
+
+Offline check: `.venv/bin/python scripts/test_brodia_mirror.py [--video clip.mp4]`
+(real-pose check skipped when no video or model is present). Live browser rendering and
+whether the FaceTime connector shows the agent's video to the iPhone are not yet tested.
+
 ## Restart and test
 
 Stop the existing worker/selector in their terminals with Ctrl-C. Do not launch
@@ -163,6 +197,7 @@ Offline checks:
 .venv/bin/python scripts/test_brodia_p15_failure_modes.py   # P15 failure/privacy matrix: docs/P15_QA_MATRIX.md
 .venv/bin/python scripts/test_voice.py
 .venv/bin/python scripts/test_vision_notes.py
+.venv/bin/python scripts/test_brodia_mirror.py
 node scripts/test_brodia_browser.cjs
 ```
 

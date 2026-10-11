@@ -108,6 +108,8 @@ bash scripts/run.sh selector                                                   #
 Open <http://127.0.0.1:8080>, pick a scenario and receptivity, press **Start practice**, and allow the microphone
 and camera. Say "end practice" or "goodbye" to get feedback. Use a fresh room for each try (the selector does this
 for you). To send video to Gemini as well, add `--vision --vision-fps 1` to the worker command.
+Optional: add `--mirror` to the worker command to make the partner publish a video track showing your own camera with your
+live pose skeleton (a pose preview; frames are not stored). See [docs/BRODIA_LIVE_ENGINE.md](docs/BRODIA_LIVE_ENGINE.md#pose-mirror-optional-agent-video).
 
 ### Real FaceTime via Chert's open-source connector
 

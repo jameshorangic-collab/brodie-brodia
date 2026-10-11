@@ -22,7 +22,7 @@ async function test(scenario, receptivity, cameraFails = false) {
           if (cameraFails) { this.camera = false; const e = new Error('Permission denied'); e.name = 'NotAllowedError'; throw e; }
           this.camera = on;
         },
-        trackPublications: new Map([['audio', { track: audio }]]),
+        trackPublications: new Map(cameraFails ? [['audio', { track: audio }]] : [['audio', { track: audio }], ['video', { track: { kind: 'video', attach: () => ({}) } }]]),
       };
     }
     on(name, fn) { this.events[name] = fn; }
@@ -33,7 +33,7 @@ async function test(scenario, receptivity, cameraFails = false) {
   const context = {
     document: { querySelector(selector) { return selector.includes('name=s') ? { value: scenario } : selector.includes('name=r') ? { value: receptivity } : nodes[selector]; } },
     console: { info() {} },
-    LivekitClient: { Room, RoomEvent: { TrackSubscribed: 'track', Disconnected: 'disconnect' } },
+    LivekitClient: { Room, RoomEvent: { TrackSubscribed: 'track', TrackUnsubscribed: 'untrack', Disconnected: 'disconnect' } },
     fetch: async (url, options) => {
       assert.equal(url, '/api/session'); sent = JSON.parse(options.body);
       return { ok: true, json: async () => ({ url: 'wss://example.invalid', token: 'offline-token', ...sent }) };
@@ -52,8 +52,17 @@ async function test(scenario, receptivity, cameraFails = false) {
   if (!cameraFails) assert.equal(active.camera, true);
   assert.equal(nodes['#leave'].hidden, false);
   assert.equal(nodes['#media'].elements[0].muted, true); // no local audio loopback
+  if (!cameraFails) assert.equal(nodes['#media'].elements[1].className, 'self'); // local self-view: small
   active.events.track({ attach: () => ({ muted: false }) });
-  assert.equal(nodes['#media'].elements[1].muted, false); // Gemini remains audible
+  assert.equal(nodes['#media'].elements.at(-1).muted, false); // Gemini remains audible
+  // P17-A: the agent's video track (pose mirror) is rendered prominently (class agent: full width, first in the flex order)
+  const agentEl = { muted: false, removed: false, remove() { this.removed = true; nodes['#media'].elements = nodes['#media'].elements.filter(e => e !== this); } };
+  const agentVideo = { kind: 'video', attach: () => agentEl, detach: () => [agentEl] };
+  active.events.track(agentVideo);
+  assert.equal(nodes['#media'].elements.at(-1).className, 'agent');
+  assert.ok(/#media \.agent\{order:-1;flex:1 1 100%/.test(html), 'agent video styled prominently');
+  active.events.untrack(agentVideo);
+  assert.equal(agentEl.removed, true); // an unpublished agent track leaves no frozen element
   await nodes['#leave'].onclick();
   assert.equal(active.disconnected, true); assert.equal(nodes['#media'].elements.length, 0);
 }
@@ -91,5 +100,5 @@ async function testNextCall(scenario, receptivity) {
   }
   await test('park', 'neutral', true);
   console.log('camera denied: call continues voice-only with honest status: PASS');
-  console.log('9/9 browser selections, audio preferences, local mute, remote playback and disconnect: PASS');
+  console.log('9/9 browser selections, audio preferences, local mute, remote playback, agent video (prominent) and self-view (small), and disconnect: PASS');
 })().catch(error => { console.error(error); process.exitCode = 1; });
