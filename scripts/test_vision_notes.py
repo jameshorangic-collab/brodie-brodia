@@ -23,6 +23,7 @@ Run:  .venv/bin/python scripts/test_vision_notes.py [--images DIR]
 import argparse, asyncio, os, sys, time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+import os as _os, tempfile as _tempfile; _os.environ['BRODIA_NEXT_CALL_PATH'] = _os.path.join(_tempfile.mkdtemp(prefix='brodia-test-'), 'next_call.json')  # never touch a real pending P13 selection
 import numpy as np
 from facetime import vision_notes as vn
 
