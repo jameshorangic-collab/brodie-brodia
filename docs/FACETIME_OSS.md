@@ -18,14 +18,14 @@ Terminal A, the worker registered under its dispatch name:
 
 ```bash
 cd /Users/james/brodie-brodia
-bash scripts/run.sh coach gemini --agent-name brodia-final-facetime --perception off --avatar --avatar-image assets/avatar/brodia-girl.png --avatar-fps 15 --mirror-shape landscape
+bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --avatar-image assets/avatar/brodia-girl.png --avatar-fps 15 --mirror-shape landscape
 ```
 
 Terminal B, one practice call (scenario and receptivity default to `park neutral`):
 
 ```bash
 cd /Users/james/brodie-brodia
-bash scripts/run.sh facetime barista interested --agent-name brodia-final-facetime
+bash scripts/run.sh facetime barista interested --agent-name brodia
 ```
 
 Terminal B creates a room with a one-hour empty-room timeout so manual guest admission does not expire the waiting worker,
@@ -37,7 +37,9 @@ If either publication is missing, it stops with the required worker flags instea
 
 1. On the iPhone, open FaceTime, tap **Create Link** and copy it. Paste it at the hidden prompt.
 2. Click **Join** in the Chrome window, then admit the guest on the iPhone.
-3. Press **Enter** in Terminal B. Confirm the connector says **receiving audio + video** (order may vary), then say hello.
+3. Brodia connects automatically when the admitted FaceTime guest receives the caller's audio track.
+   Confirm the connector says **receiving audio + video** (order may vary), then say hello.
+   If automatic connection does not occur after admission, **Enter** in Terminal B remains a manual fallback.
    The iPhone should show the scenario's female avatar blinking while listening and moving her mouth with Gemini's voice.
 4. Say **"goodbye"**, **"end practice"**, or **"end this conversation"** to switch to Coach Brodie and hear feedback.
    Wait for feedback before hanging up. Then press Enter in Terminal B (or **Stop test** in Chrome). The worker ends the
@@ -109,6 +111,30 @@ and checks one feedback transition, one coach-avatar transition, audible returne
 This is a **synthetic voice network test**, distinct from the human iPhone test above.
 It passed from the updated production checkout: one feedback transition, one coach-avatar transition,
 1,313 audible frames during the closing/feedback exchange and 710 decoded 960x540 video frames.
+
+## Admission startup fix
+
+In the follow-up iPhone test, the guest showed the green Chert waiting face and stayed silent because the upstream
+CLI was still waiting for terminal Enter before connecting LiveKit. Starting that connection immediately restored
+Brodia's picture and voice, confirmed by the caller. This was reproducible after joining and admitting the guest.
+
+`scripts/facetime_connector.mjs` is a small adapter around the **pinned Chert 0.1.2 CLI**. It detects an incoming caller
+audio track on the FaceTime tab, then lets the original CLI connect LiveKit. The local inter-tab hop uses NativePeer,
+so its tracks do not count as caller admission. Enter remains a fallback. The adapter cancels the unused readline
+question before the Stop prompt, so a leftover admission prompt cannot swallow the next Enter.
+It validates the package version and exact patch locations and fails on incompatible source. It modifies only a
+temporary CLI copy under gitignored `.local`, removes that copy on exit, and leaves the installed package, SDK,
+audio/video routing, Gemini worker, personality engine and contact tools unchanged.
+
+The fresh real iPhone call passed with this adapter: after the caller joined and admitted the guest, the CLI
+connected LiveKit and received audio + video **without terminal Enter**. The caller confirmed Brodia's picture
+and voice started correctly. That working call was left running.
+
+The adapter's offline admission, fallback, cancellation, privacy and real npm compatibility checks are:
+
+```bash
+npx -y --package @trychert/facetime-opensource@0.1.2 -- node --test scripts/test_facetime_connector.mjs
+```
 
 ## Avatar validation (2026-10-11, macOS)
 

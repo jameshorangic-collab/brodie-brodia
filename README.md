@@ -130,12 +130,13 @@ This path uses [cherthq/chert-facetime-opensource](https://github.com/cherthq/ch
 bridges it into the `brodia` room. You need Node 22.22+, Google Chrome (Chromium won't work) and an iPhone.
 
 ```bash
-bash scripts/run.sh coach gemini --agent-name brodia-final-facetime --perception off --avatar --avatar-image assets/avatar/brodia-girl.png --avatar-fps 15 --mirror-shape landscape  # Terminal A
-bash scripts/run.sh facetime barista interested --agent-name brodia-final-facetime  # Terminal B
+bash scripts/run.sh coach gemini --agent-name brodia --perception off --avatar --avatar-image assets/avatar/brodia-girl.png --avatar-fps 15 --mirror-shape landscape  # Terminal A
+bash scripts/run.sh facetime barista interested --agent-name brodia  # Terminal B
 ```
 
 On the iPhone, create a FaceTime link and paste it at the prompt. Click **Join** in Chrome, admit the guest on the
-iPhone, then press Enter in Terminal B. Say "goodbye" or "end this conversation" for Coach Brodie's feedback.
+iPhone. Brodia connects automatically when the FaceTime caller's audio track arrives; Enter in Terminal B is a fallback
+after admission. Say "goodbye" or "end this conversation" for Coach Brodie's feedback.
 Run Terminal B again for each call; it waits for both worker media tracks and targets their exact participant.
 Stop any old connector first and use the current checkout's fresh config. `--no-launch` only writes the config.
 Full steps are in [docs/FACETIME_OSS.md](docs/FACETIME_OSS.md).

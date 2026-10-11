@@ -2,7 +2,7 @@
 
 Dispatches the `brodia` worker into a fresh room with the chosen scenario/receptivity, waits for both media tracks,
 mints a one-hour token for the connector's browser guest, writes it to .local/facetime-oss.json (0600, gitignored) and
-runs `npx @trychert/facetime-opensource --config` on it. The connector prompts privately for the FaceTime link.
+runs the pinned Chert CLI through Brodia's admission adapter. It prompts privately for the FaceTime link.
 
 Start the worker first with Gemini, --avatar --avatar-image assets/avatar/brodia-girl.png --mirror-shape landscape.
 Use matching --agent-name values on the worker and this command; see docs/FACETIME_OSS.md for the exact two commands.
@@ -67,11 +67,13 @@ def main():
     with os.fdopen(fd, 'w') as f:
         json.dump({'url': os.environ['LIVEKIT_URL'], 'token': mint(GUEST_IDENTITY, room, ttl_s=3600), 'targetIdentity': agent}, f)
     print(f'[facetime] {config.scenario} + {config.receptivity}: room {room!r}, agent {agent!r} joined; connector config in {CONFIG.relative_to(ROOT)}', flush=True)
-    cmd = ['npx', '-y', CONNECTOR, '--config', str(CONFIG)]
+    cmd = ['npx', '-y', '--package', CONNECTOR, '--', 'node', str(ROOT / 'scripts' / 'facetime_connector.mjs'),
+           '--config', str(CONFIG)]
     if a.no_launch:
         print(' '.join(cmd)); return
     print('[facetime] Create a FaceTime link on your iPhone (FaceTime > Create Link), paste it at the hidden prompt, click Join in '
-          'Chrome, admit the guest on the iPhone, then press Enter here.', flush=True)
+          'Chrome and admit the guest on the iPhone. Brodia connects automatically when caller audio arrives; '
+          'Enter is a fallback after admission.', flush=True)
     sys.exit(subprocess.call(cmd))
 
 
