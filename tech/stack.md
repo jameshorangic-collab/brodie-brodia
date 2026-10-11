@@ -30,6 +30,24 @@ set -a && source .env.local && set +a
 AGENT_NAME=brodia .venv/bin/python -m facetime.worker --voice gemini dev
 ```
 
+For the P02 voice-only roleplay path (no pose model, rep counter, or fitness
+classifier is initialized), use the narrow Park + Neutral configuration:
+
+```sh
+set -a && source .env.local && set +a
+AGENT_NAME=brodia .venv/bin/python -m facetime.worker \
+  --perception off --floor open --voice gemini \
+  --persona starter/examples/brodia_park_neutral/persona.md \
+  --plan-file starter/examples/brodia_park_neutral/context.md \
+  --handlers starter/examples/brodia_park_neutral/handlers.py dev
+```
+
+Before a real call, check the isolated roleplay assets with:
+
+```sh
+.venv/bin/python scripts/test_brodia_park_neutral.py
+```
+
 ## Current verification boundary
 
 The local runtime, ignored secret file, dispatch-name default, and worker help
