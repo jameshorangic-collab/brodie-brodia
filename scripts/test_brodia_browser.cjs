@@ -49,7 +49,33 @@ async function test(scenario, receptivity) {
   assert.equal(active.disconnected, true); assert.equal(nodes['#media'].elements.length, 0);
 }
 
+async function testNextCall(scenario, receptivity) {
+  const nodes = { '#start': {}, '#leave': {}, '#status': {}, '#media': {}, '#nextcall': {}, '#nextstatus': {} };
+  let sent;
+  const context = {
+    document: { querySelector(selector) { return selector.includes('name=s') ? { value: scenario } : selector.includes('name=r') ? { value: receptivity } : nodes[selector]; } },
+    console: { info() {} }, LivekitClient: {},
+    fetch: async (url, options) => {
+      assert.equal(url, '/api/next-call'); assert.equal(options.method, 'POST'); sent = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ pending: true, id: 'abcd', expires_in: 120, ...sent }) };
+    },
+  };
+  vm.runInNewContext(source, context);
+  await nodes['#nextcall'].onclick();
+  assert.deepEqual(sent, { scenario, receptivity });
+  const text = nodes['#nextstatus'].textContent;
+  for (const phrase of ['Demo-only', `${scenario} + ${receptivity}`, 'One caller at a time', 'expires in 120 s', 'Not yet proven to reach the call'])
+    assert.ok(text.includes(phrase), `next-call copy missing ${phrase}: ${text}`);
+  assert.equal(nodes['#nextcall'].disabled, false);
+  context.fetch = async () => ({ ok: false });
+  await nodes['#nextcall'].onclick();
+  assert.equal(nodes['#nextstatus'].textContent, 'Could not save the next-call choice');
+}
+
 (async () => {
+  await testNextCall('park', 'neutral');
+  await testNextCall('street', 'uninterested');
+  console.log('next FaceTime call (demo-only) button: POST /api/next-call and honest copy: PASS');
   for (const scenario of ['barista', 'street', 'park']) {
     for (const stance of ['interested', 'neutral', 'uninterested']) await test(scenario, stance);
   }

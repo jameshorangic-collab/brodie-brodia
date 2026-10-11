@@ -137,6 +137,11 @@ The named worker is important: the selector creates an explicit `brodia` dispatc
 Optional video-to-Gemini: append `--vision --vision-fps 1`. FaceTime dispatch can
 use the same metadata, or supply both `--brodia-scenario` and `--brodia-receptivity`.
 
+FaceTime line, demo-only (P13): the page's **Use for next FaceTime call** stores one
+pending selection (120 s TTL) that the next real Chert caller job consumes once. Explicit
+browser metadata still wins, and warm jobs never consume it. Live behavior is ⚠️ unverified.
+See `docs/P13_NEXT_CALL.md` for the design and the exact live test steps.
+
 Keep the existing keys local. Optional nonsecret settings in `.env.local`:
 
 ```bash
@@ -153,6 +158,7 @@ Offline checks:
 .venv/bin/python scripts/test_brodia_config.py
 .venv/bin/python scripts/test_brodia_feedback.py
 .venv/bin/python scripts/test_brodia_server.py
+.venv/bin/python scripts/test_brodia_next_call.py
 .venv/bin/python scripts/test_brodia_park_neutral.py
 .venv/bin/python scripts/test_voice.py
 .venv/bin/python scripts/test_vision_notes.py

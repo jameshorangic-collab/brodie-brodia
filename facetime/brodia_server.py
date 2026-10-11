@@ -4,6 +4,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from livekit import api
 from facetime.brodia import RoleplayConfig
+from facetime import next_call
 from facetime.mint_token import mint
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,18 @@ async def create_session(data):
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs): super().__init__(*args, directory=str(WEB), **kwargs)
+    def send_json(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code); self.send_header('Content-Type', 'application/json'); self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_GET(self):
+        if self.path == '/api/next-call': self.send_json(200, next_call.status()); return
+        super().do_GET()
+    def do_DELETE(self):
+        if self.path != '/api/next-call': self.send_error(404); return
+        self.send_json(200, {'cleared': next_call.clear()})
     def do_POST(self):
+        if self.path == '/api/next-call': self.post_next_call(); return
         if self.path != '/api/session': self.send_error(404); return
         try:
             n = int(self.headers.get('Content-Length', '0')); payload = json.loads(self.rfile.read(n))
@@ -33,6 +45,18 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_error(400, str(e))
         except Exception as e:
             self.send_error(502, 'Unable to start practice session')
+    def post_next_call(self):
+        """P13 demo-only: store ONE pending selection for the next Chert FaceTime caller (facetime/next_call.py)."""
+        try:
+            n = int(self.headers.get('Content-Length', '0')); payload = json.loads(self.rfile.read(n))
+            if not isinstance(payload, dict): raise ValueError('expected a JSON object')
+            record = next_call.store(payload.get('scenario'), payload.get('receptivity'))
+        except (ValueError, json.JSONDecodeError) as e:
+            self.send_error(400, str(e)); return
+        print(f"[selector] next-call selection {record['id']}: {record['scenario']} + {record['receptivity']} "
+              f"(demo-only, expires in {record['expires_at'] - record['created_at']:.0f} s)", flush=True)
+        self.send_json(201, {'pending': True, 'id': record['id'], 'scenario': record['scenario'], 'receptivity': record['receptivity'],
+                             'expires_in': round(record['expires_at'] - record['created_at'], 1)})
 
 
 def main():

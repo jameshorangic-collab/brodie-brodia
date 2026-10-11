@@ -228,6 +228,35 @@ def apply_brodia_dispatch(a, metadata):
     return a
 
 
+def is_chert_caller_job(md):
+    """A real Chert call job: chert_call metadata, not a warm/doctor job. BRODIA_NEXT_CALL_ANY_JOB=1 also accepts any
+    non-warm job (escape hatch if a live Chert call turns out to carry no chert_call key)."""
+    if not isinstance(md, dict) or md.get('chert_warm'): return False
+    return 'chert_call' in md or os.environ.get('BRODIA_NEXT_CALL_ANY_JOB') == '1'
+
+
+def select_brodia(a, md):
+    """P13 persona source, in priority order: explicit browser dispatch metadata (`brodia`), then the DEMO-ONLY pending
+    next-call selection (consumed once, real Chert caller jobs only, never warm jobs), then the worker flags/default.
+    Returns (args, source) and logs the source."""
+    if isinstance(md, dict) and md.get('brodia'):
+        a = apply_brodia_dispatch(a, md); source = 'browser dispatch metadata'
+    elif is_chert_caller_job(md) and os.environ.get('BRODIA_NEXT_CALL', '1') != '0':
+        from facetime import next_call
+        record, why = next_call.consume()
+        if record is not None:
+            a = configure_brodia_session(a, record['config']); source = f'next-call selection (demo-only; {why})'
+        else:
+            a = apply_brodia_dispatch(a, md); source = ('worker flags' if getattr(a, 'brodia_scenario', None) else 'default (no Brodia config)') + f' (next-call: {why})'
+    else:
+        a = apply_brodia_dispatch(a, md)
+        source = 'worker flags' if getattr(a, 'brodia_scenario', None) else 'default (no Brodia config)'
+        if isinstance(md, dict) and md.get('chert_warm'): source += ' (warm job: next-call not consumed)'
+    picked = f'{a.brodia_scenario} + {a.brodia_receptivity}' if getattr(a, 'brodia_scenario', None) else 'none'
+    print(f'[brodia] persona {picked} from {source}', flush=True)
+    return a, source
+
+
 def brodia_persona(a):
     """The only system instruction source for a configured Brodia session."""
     if not getattr(a, 'brodia_scenario', None):
@@ -264,7 +293,7 @@ def describe_mode(a):
 async def entrypoint(ctx: JobContext):
     ud = ctx.proc.userdata
     a = copy.deepcopy(ud.get('args') or load_args()); md = parse_metadata(ctx.job.metadata)
-    a = apply_brodia_dispatch(a, md)
+    a, _ = select_brodia(a, md)
     cfg = Config.from_args(a)
     pipe = ud.pop('pipe', None)
     if a.brodia_scenario:
