@@ -101,7 +101,7 @@ def build_parser():
     ap.add_argument('--data-topic', default='brodie.events')
     ap.add_argument('--event-log', default=os.environ.get('RTCOACH_EVENT_LOG', os.path.join(DATA, 'tmp', 'worker_events.jsonl')), help='JSONL event log (appended; env RTCOACH_EVENT_LOG)')
     ap.add_argument('--cue-log', default=os.environ.get('RTCOACH_CUE_LOG', os.path.join(DATA, 'tmp', 'worker_cues.jsonl')), help='JSONL log of cues played or dropped (env RTCOACH_CUE_LOG)')
-    ap.add_argument('--agent-name', default=os.environ.get('AGENT_NAME', 'brodie-coach'), help='dispatch name (env AGENT_NAME); "" = automatic dispatch to every room (local tests)')
+    ap.add_argument('--agent-name', default=os.environ.get('AGENT_NAME', 'brodia'), help='dispatch name (env AGENT_NAME); "" = automatic dispatch to every room (local tests)')
     ap.add_argument('--audio-queue-ms', type=int, default=100, help='AudioSource queue for this worker (100; the Mac saw an underrun at 60 during one-per-second jack counts; coach_agent keeps 60)')
     ap.add_argument('--leave-grace-s', type=float, default=2.0, help='after the bound participant leaves, end the job unless somebody rebinds within this (negative = never end on a leave)')
     ap.add_argument('--no-probe-beep', dest='probe_beep', action='store_false', help='with --latency-probe: open the voice floor on the probe but do not beep')
