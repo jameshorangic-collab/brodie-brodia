@@ -53,10 +53,17 @@ class FeedbackSession:
     def __init__(self):
         self.caller = []
         self.coach = []
+        self.vision_notes = []
         self.finished = False
 
     def observe(self, event):
         """Record a voice event; return the one-time coaching prompt on a real exit."""
+        if event.get('type') == 'vision_note':
+            if event.get('source_verified') and event.get('observable_description'):
+                note = event['observable_description'].strip()
+                nearby = (event.get('optional_nearby_utterance') or '').strip()
+                self.vision_notes.append((note, nearby))
+            return None
         if event.get('type') != 'voice':
             return None
         role, text = event.get('role'), (event.get('text') or '').strip()
@@ -76,7 +83,10 @@ class FeedbackSession:
     def feedback_prompt(self):
         evidence = self.caller[-3:]
         quoted = '\n'.join(f'- Exact caller words: "{line}"' for line in evidence) or '- No usable caller transcript was captured.'
+        visuals = self.vision_notes[-1:]
+        visual_line = ('- Verified video observation: ' + visuals[0][0] + (f'; near caller words: "{visuals[0][1]}"' if visuals[0][1] else '') if visuals
+                       else '- No verified visual observation is available. Do not mention appearance, body language, camera, or video.')
         return ('ROLEPLAY IS OVER. Switch to a brief, supportive coach voice exactly once. Give exactly: two strengths, two improvements, '
                 'and one next-attempt tip. Base every specific claim on the exact caller words below; quote only those words and do not invent '
-                'visual observations, attraction, confidence scores, or private details. Give credit for a respectful exit. Keep the full response '
-                'to 15–30 seconds.\n\n' + quoted)
+                'attraction, confidence scores, or private details. Use a visual observation only when it is explicitly marked verified below. '
+                'Give credit for a respectful exit. Keep the full response to 15–30 seconds.\n\n' + quoted + '\n' + visual_line)

@@ -14,6 +14,13 @@ def main():
     assert session.observe({'type': 'voice', 'role': 'caller', 'text': 'bye'}) is None
     empty = FeedbackSession(); prompt = empty.observe({'type': 'voice', 'role': 'caller', 'text': 'bye'})
     assert 'No usable caller transcript' not in prompt  # the goodbye itself is evidence
+    visual = FeedbackSession()
+    visual.observe({'type': 'vision_note', 'source_verified': False, 'observable_description': 'facing the camera'})
+    visual.observe({'type': 'vision_note', 'source_verified': True, 'observable_description': 'turned away from the camera', 'optional_nearby_utterance': 'I have to go'})
+    prompt = visual.observe({'type': 'voice', 'role': 'caller', 'text': 'Please end practice'})
+    assert 'turned away from the camera' in prompt and 'facing the camera' not in prompt
+    no_video = FeedbackSession(); prompt = no_video.observe({'type': 'voice', 'role': 'caller', 'text': 'end practice'})
+    assert 'No verified visual observation is available' in prompt
     print('P04 explicit end and grounded feedback transition: PASS')
 
 
